@@ -123,10 +123,11 @@ if __name__=="__main__":
     parser.add_argument('--q', type=float, help='Quantile for selecting the threshold')
     parser.add_argument('--num_test', type=int, default=50)
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
+    parser.add_argument("--num_attempts", default=3, type=int)
     args = parser.parse_args()
     device = "cuda:0"
     config = {"latent" : 512, "n_mlp" : 8, "channel_multiplier": 2}
-    
+
     generator = Generator(
             size = 1024, # size of generated image
             style_dim = config["latent"],
@@ -155,62 +156,63 @@ if __name__=="__main__":
     
     for target in ["grey hair", "he wears lipstick", "she is grumpy", "asian is smiling"]:
         for i, latent in enumerate(test_latents):
-            with torch.no_grad():
-                latent = latent.unsqueeze(0).cuda()
-                style_space, style_names, noise_constants = encoder(generator, latent)
-                img_orig = decoder(generator, style_space, latent, noise_constants)
-                target_embedding = GetDt(target, model)
-                args.description = target_embedding.unsqueeze(0).float()
-                text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args)
-                text_model.cuda()
+            for attmpt in range(len(args.num_attempts)):
+                with torch.no_grad():
+                    latent = latent.unsqueeze(0).cuda()
+                    style_space, style_names, noise_constants = encoder(generator, latent)
+                    img_orig = decoder(generator, style_space, latent, noise_constants)
+                    target_embedding = GetDt(target, model)
+                    args.description = target_embedding.unsqueeze(0).float()
+                    text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args)
+                    text_model.cuda()
 
-            # StyleCLIP GlobalDirection 
-            if args.method=="Baseline":
-                target_embedding = target_embedding.detach().cpu().numpy()
-                target_embedding = target_embedding/np.linalg.norm(target_embedding)
-            else:
-            # Random Interpolation
-                text_feature = text_model.text_feature
-                image_manifold, gamma = text_model()
-                text_star = l2norm(2 * gamma * text_feature + image_manifold)
-                target_embedding = text_star.squeeze(0).detach().cpu().numpy()
+                # StyleCLIP GlobalDirection 
+                if args.method=="Baseline":
+                    target_embedding = target_embedding.detach().cpu().numpy()
+                    target_embedding = target_embedding/np.linalg.norm(target_embedding)
+                else:
+                # Random Interpolation
+                    text_feature = text_model.text_feature
+                    image_manifold, gamma = text_model()
+                    text_star = l2norm(2 * gamma * text_feature + image_manifold)
+                    target_embedding = text_star.squeeze(0).detach().cpu().numpy()
 
-            if args.disentangle_fs3=="T":
-                # Disentangle style channels
-                for i in range(len(fs3)):
-                    fs3 = torch.Tensor(fs3)
-                    t = fs3[i, :]
-                    sim = torch.Tensor(fs3 @ t.T)
-                    _, core = torch.topk(sim, k=1)
-                    _, us = torch.topk(sim, k=3)
-                    us_fs3 = torch.stack([fs3[i] for i in us if i not in core])
-                    weights = torch.stack([sim[i] for i in us if i not in core])
-                    int_sem = l2norm(torch.mm(weights.unsqueeze(0), us_fs3))
-                    fs3[i, :] = projection(basis=t, target=int_sem)
-                    fs3 = fs3.numpy()
-            if args.method == "Baseline": 
-                boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, args.q, style_space, style_names) # Move each channel by dStyle
-            else:
-                boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, 50, style_space, style_names) # Move each channel by dStyle
-            dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
-            codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
-            img_gen = decoder(generator, codes, latent, noise_constants)
-            
-            # Save each image in proper directory
-            entangle = "disentangle" if args.disentangle_fs3=="T" else "entangle"
-            img_name =  f"{i}-{target}"
-            imgs = torch.cat([img_orig, img_gen])
-            img_dir = f"results/{args.method}/{entangle}/"
-            os.makedirs(img_dir, exist_ok=True)
-            save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
-            with torch.no_grad():
-                identity = idloss(img_orig, img_gen)[0]
-                new_image_feature = text_model.encode_image(img_gen)
-                cs, us, ip = text_model.evaluation(new_image_feature)
-            wandb.log({"Generated image": wandb.Image(imgs, caption=img_name), 
-                        "core semantic": np.round(cs, 3), 
-                        "unwanted semantics": np.round(us, 3), 
-                        "source positive": np.round(ip, 3),
-                        "identity loss": identity, 
-                        "changed channels": c})
+                if args.disentangle_fs3=="T":
+                    # Disentangle style channels
+                    for i in range(len(fs3)):
+                        fs3 = torch.Tensor(fs3)
+                        t = fs3[i, :]
+                        sim = torch.Tensor(fs3 @ t.T)
+                        _, core = torch.topk(sim, k=1)
+                        _, us = torch.topk(sim, k=3)
+                        us_fs3 = torch.stack([fs3[i] for i in us if i not in core])
+                        weights = torch.stack([sim[i] for i in us if i not in core])
+                        int_sem = l2norm(torch.mm(weights.unsqueeze(0), us_fs3))
+                        fs3[i, :] = projection(basis=t, target=int_sem)
+                        fs3 = fs3.numpy()
+                if args.method == "Baseline": 
+                    boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, args.q, style_space, style_names) # Move each channel by dStyle
+                else:
+                    boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, 50, style_space, style_names) # Move each channel by dStyle
+                dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
+                codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
+                img_gen = decoder(generator, codes, latent, noise_constants)
+                
+                # Save each image in proper directory
+                entangle = "disentangle" if args.disentangle_fs3=="T" else "entangle"
+                img_name =  f"{i}-{target}-{attmpt}"
+                imgs = torch.cat([img_orig, img_gen])
+                img_dir = f"results/{args.method}/{entangle}/"
+                os.makedirs(img_dir, exist_ok=True)
+                save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
+                with torch.no_grad():
+                    identity = idloss(img_orig, img_gen)[0]
+                    new_image_feature = text_model.encode_image(img_gen)
+                    cs, us, ip = text_model.evaluation(new_image_feature)
+                wandb.log({"Generated image": wandb.Image(imgs, caption=img_name), 
+                            "core semantic": np.round(cs, 3), 
+                            "unwanted semantics": np.round(us, 3), 
+                            "source positive": np.round(ip, 3),
+                            "identity loss": identity, 
+                            "changed channels": c})
     wandb.finish() 
