@@ -86,13 +86,12 @@ class RandomInterpolation(nn.Module):
         self.text_feature = l2norm(self.text_feature)
 
     def diverse_text(self):
-        values, indices = torch.topk(self.core_cond, 1, dim=-1)
-        tmp = self.text_feature.clone()
-        cnt = 0
-        for idx in indices[0]:
-            self.text_feature[0, idx] = 1.0*tmp[0, idx] + 0.3 * values[0, cnt]
-            cnt += 1
-        self.text_feature = l2norm(self.text_feature)
+        N = self.core_cond.shape[0]
+
+        tmp = torch.rand(N).to(self.device).unsqueeze(0)
+        tmp = torch.matmul(tmp, self.core_cond)
+
+        self.text_feature = self.projection(basis=tmp, target=self.text_feature)
 
     def over_quant(self, probs, q, plot=False, title=None):
         # _, indices = torch.topk(probs, k=top)

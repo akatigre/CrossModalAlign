@@ -6,7 +6,6 @@ import torch
 from functools import partial
 from torch.nn import functional as F
 
-
 l2norm = partial(F.normalize, p=2, dim=1)
 
 def projection(basis, target):
@@ -131,13 +130,21 @@ def GetBoundary(fs3, dt, quantile, style_space, style_names):
         channelwise style movement * dText
     """
     tmp=np.dot(fs3,dt)
-    mu, sigma = tmp.mean(), tmp.std()
-    threshold = mu + quantile*sigma
-    ds_imp=copy.copy(tmp)
-    select = np.abs(tmp)<threshold
-    num_c = np.sum(~select)
-    print(np.where(~select))
-    ds_imp[select] = 0
+    # mu, sigma = tmp.mean(), tmp.std()
+    # threshold = mu + quantile*sigma
+    # ds_imp=copy.copy(tmp)
+    # select = np.abs(tmp)<threshold
+    # num_c = np.sum(~select)
+    # print(np.where(~select))
+    # ds_imp[select] = 0
+
+    ds_imp=np.zeros_like(tmp)
+    num_c = quantile
+    _, idxs = torch.topk(torch.Tensor(tmp), num_c)
+    for idx in idxs:
+        idx = idx.detach().cpu()
+        ds_imp[idx] = tmp[idx]
+
     tmp=np.abs(ds_imp).max()
     ds_imp/=tmp
     boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space)

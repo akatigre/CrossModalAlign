@@ -118,7 +118,7 @@ def encoder(G, latent):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP')
-    parser.add_argument('--method', type=str, default="baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction')
+    parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction')
     parser.add_argument('--disentangle_fs3', default="T", choices = ["T", "F"], help='Use disentangling fs3')
     parser.add_argument('--q', type=float, help='Quantile for selecting the threshold')
     parser.add_argument('--num_test', type=int, default=50)
@@ -170,9 +170,9 @@ if __name__=="__main__":
                 target_embedding = target_embedding/np.linalg.norm(target_embedding)
             else:
             # Random Interpolation
-                target = text_model.text_feature
+                text_feature = text_model.text_feature
                 image_manifold, gamma = text_model()
-                text_star = l2norm(2 * gamma * target + image_manifold)
+                text_star = l2norm(2 * gamma * text_feature + image_manifold)
                 target_embedding = text_star.squeeze(0).detach().cpu().numpy()
 
             if args.disentangle_fs3=="T":
@@ -188,7 +188,10 @@ if __name__=="__main__":
                     int_sem = l2norm(torch.mm(weights.unsqueeze(0), us_fs3))
                     fs3[i, :] = projection(basis=t, target=int_sem)
                     fs3 = fs3.numpy()
-            boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, args.q, style_space, style_names) # Move each channel by dStyle
+            if args.method == "Baseline": 
+                boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, args.q, style_space, style_names) # Move each channel by dStyle
+            else:
+                boundary_tmp2, c, dlatents = GetBoundary(fs3, target_embedding, 50, style_space, style_names) # Move each channel by dStyle
             dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
             codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
             img_gen = decoder(generator, codes, latent, noise_constants)
@@ -206,8 +209,9 @@ if __name__=="__main__":
                 new_image_feature = text_model.encode_image(img_gen)
                 cs, us, ip = text_model.evaluation(new_image_feature)
             wandb.log({"Generated image": wandb.Image(imgs, caption=img_name), 
-            "core semantic": np.round(cs, 3), 
-            "unwanted semantics": np.round(us, 3), 
-            "source positive": np.round(ip, 3),
-            "identity loss": identity})
+                        "core semantic": np.round(cs, 3), 
+                        "unwanted semantics": np.round(us, 3), 
+                        "source positive": np.round(ip, 3),
+                        "identity loss": identity, 
+                        "changed channels": c})
     wandb.finish() 
