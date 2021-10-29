@@ -1,4 +1,23 @@
+# Generated Image
 ./results/*
+./results
+
+# log 
+./global/__pycache__/*
+./global/stylegan2/__pycache__/*
+./global/criteria/__pycache__/*
+./global/facial_recognition/__pycache__/*
+./global/dnnlib/__pycache__/*
+
+*.pyc
+
+
 ./wandb
+
+# pretrained model 
+./global/npy/*
+./pretrained_models/*
 ./npy/*
-./stylegan2
+./global/npy/*
+
+

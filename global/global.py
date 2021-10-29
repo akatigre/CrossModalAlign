@@ -1,16 +1,18 @@
-import torch
-import clip
-import argparse
-from stylegan2.models import Generator
-import numpy as np
-from torch.nn import functional as F
-from utils import *
-from torchvision.utils import save_image
 import os
+import clip
+import wandb
+import torch
+import argparse
+import numpy as np
+from utils import *
+from torch.nn import functional as F
+from torchvision.utils import save_image
+
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
 from criteria.id_loss import IDLoss
-import wandb
+from stylegan2.model import Generator
 from text_model import RandomInterpolation
 
 
