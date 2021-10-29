@@ -70,7 +70,7 @@ def decoder(G, style_space, latent, noise):
     out = G.input(latent)
 
     out = conv_warper(G.conv1, out, style_space[0], noise[0])
-    skip = G.to_rgb1(out, latent[:, 0])
+    skip, _ = G.to_rgb1(out, latent[:, 0])
 
     i = 2; j = 1
     for conv1, conv2, noise1, noise2, to_rgb in zip(
@@ -78,7 +78,7 @@ def decoder(G, style_space, latent, noise):
     ):
         out = conv_warper(conv1, out, style_space[i], noise=noise1)
         out = conv_warper(conv2, out, style_space[i+1], noise=noise2)
-        skip = to_rgb(out, latent[:, j + 2], skip)
+        skip, _ = to_rgb(out, latent[:, j + 2], skip)
 
         i += 3; j += 2
 
@@ -201,8 +201,7 @@ if __name__=="__main__":
             img_name =  f"{i}-{target}"
             imgs = torch.cat([img_orig, img_gen])
             img_dir = f"results/{args.method}/{entangle}/"
-            if not os.path.exists(img_dir):
-                os.mkdir(img_dir)
+            os.makedirs(img_dir, exist_ok=True)
             save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
             with torch.no_grad():
                 identity = idloss(img_orig, img_gen)[0]

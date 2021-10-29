@@ -12,12 +12,16 @@
 *.pyc
 
 
-./wandb
+./wandb/*
+global/wandb/*
+global/results/*
 
 # pretrained model 
 ./global/npy/*
 ./pretrained_models/*
-./npy/*
+global/npy/*
 ./global/npy/*
 
 
+*.pth 
+*.pt
