@@ -21,12 +21,12 @@ settings = [
             "num_test": 50,
         }
     }
-    for method in ["Baseline", "Random"]
+    for method in ["Random"]
     for q in [1.96, 2.33, 2.58]
     for tf in ["T", "F"]
 ]
 
-print(f'num settings: {len(settings)}')
+print(f'num settings: {len(settings)+1}')
 
 total_multirun_size = len(available_gpus) * processes_per_gpu
 experiments_per_gpu = [[] for _ in range(total_multirun_size)]
@@ -37,7 +37,6 @@ Path('./scripts').mkdir(parents=True, exist_ok=True)
 with open(f'./scripts/{script_name}.sh', 'w') as f:
     
     for i, experiment_list in enumerate(experiments_per_gpu):
-        print(experiment_list)
         if len(experiment_list) > 0:
             
             gpu = available_gpus[i % len(available_gpus)]
