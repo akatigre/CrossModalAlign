@@ -1,0 +1,4 @@
+./results/*
+./wandb
+./npy/*
+./stylegan2
