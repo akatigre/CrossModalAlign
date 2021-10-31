@@ -1,7 +1,7 @@
 import torch
 import clip
 import argparse
-from stylegan2.models import Generator
+
 import numpy as np
 from torch.nn import functional as F
 from utils import *
@@ -10,6 +10,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from criteria.id_loss import IDLoss
+from stylegan2.models import Generator
 import wandb
 from text_model import RandomInterpolation
 
@@ -123,6 +124,7 @@ if __name__=="__main__":
     parser.add_argument('--num_test', type=int, default=50)
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
     parser.add_argument("--num_attempts", default=3, type=int)
+    parser.add_argument("--topk", action="store_true", help="Topk selection instead of threshold")
     args = parser.parse_args()
     device = "cuda:0"
     config = {"latent" : 512, "n_mlp" : 8, "channel_multiplier": 2}
@@ -156,8 +158,9 @@ if __name__=="__main__":
             int_sem = l2norm(torch.mm(weights.unsqueeze(0), us_fs3))
             fs3[i, :] = projection(basis=t, target=int_sem)
             fs3 = fs3.numpy()
+
     test_latents = torch.load("../mapper/test_faces.pt", map_location='cpu')
-    test_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:, :]).cpu()
+    test_latents = torch.Tensor(test_latents[:args.num_test, :]).cpu()
     if args.method == "Baseline":
         exp_name = f"method{args.method}-beta{args.beta}"
         config = {'beta':args.beta}
@@ -170,48 +173,49 @@ if __name__=="__main__":
     
     for target in ["asian", "muslim", "black", "latin", "european", "female", "male", "old", "young"]:
         for i, latent in enumerate(test_latents):
-            with torch.no_grad():
-                latent = latent.unsqueeze(0).cuda()
-                style_space, style_names, noise_constants = encoder(generator, latent)
-                img_orig = decoder(generator, style_space, latent, noise_constants)
-                target_embedding = GetDt(target, model)
-                args.description = target_embedding.unsqueeze(0).float()
-                text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args)
-                text_model.cuda()
+            latent = latent.unsqueeze(0).cuda()
+            for attmpt in range(args.num_attempts):
+                with torch.no_grad():
+                    # latent = latent.cuda()
+                    style_space, style_names, noise_constants = encoder(generator, latent)
+                    img_orig = decoder(generator, style_space, latent, noise_constants)
+                    target_embedding = GetDt(target, model)
+                    args.description = target_embedding.unsqueeze(0).float()
+                    text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args)
+                    text_model.cuda()
 
-            # StyleCLIP GlobalDirection 
-            if args.method=="Baseline":
-                target_embedding = target_embedding.detach().cpu().numpy()
-                target_embedding = target_embedding/np.linalg.norm(target_embedding)
-            else:
-            # Random Interpolation
-                text_feature = text_model.text_feature
-                image_manifold, gamma = text_model()
-                text_star = l2norm(2 * gamma * text_feature + image_manifold)
-                target_embedding = text_star.squeeze(0).detach().cpu().numpy()
+                # StyleCLIP GlobalDirection 
+                if args.method=="Baseline":
+                    target_embedding = target_embedding.detach().cpu().numpy()
+                    target_embedding = target_embedding/np.linalg.norm(target_embedding)
+                else:
+                # Random Interpolation
+                    text_feature = text_model.text_feature
+                    image_manifold, gamma = text_model()
+                    text_star = l2norm(2 * gamma * text_feature + image_manifold)
+                    target_embedding = text_star.squeeze(0).detach().cpu().numpy()
 
-            boundary_tmp2, num_c, dlatents = GetBoundary(fs3, target_embedding, args, style_space, style_names) # Move each channel by dStyle
-            dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
-            codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
-            img_gen = decoder(generator, codes, latent, noise_constants)
-            
-            # Save each image in proper directory
-            entangle = "disentangle" if args.disentangle_fs3=="T" else "entangle"
-            img_name =  f"{i}-{target}"
-            imgs = torch.cat([img_orig, img_gen])
-            img_dir = f"results/{args.method}/{entangle}/"
-            if not os.path.exists(img_dir):
-                os.mkdir(img_dir)
-            save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
-            with torch.no_grad():
-                identity = idloss(img_orig, img_gen)[0]
-                new_image_feature = text_model.encode_image(img_gen)
-                cs, us, ip = text_model.evaluation(new_image_feature)
-            wandb.log({
-                "Generated image": wandb.Image(imgs, caption=img_name), 
-                "core semantic": np.round(cs, 3), 
-                "unwanted semantics": np.round(us, 3), 
-                "source positive": np.round(ip, 3),
-                "identity loss": identity,
-                "changed channels": num_c})
+                boundary_tmp2, num_c, dlatents = GetBoundary(fs3, target_embedding, args, style_space, style_names) # Move each channel by dStyle
+                dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
+                codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
+                img_gen = decoder(generator, codes, latent, noise_constants)
+                
+                # Save each image in proper directory
+                entangle = "disentangle" if args.disentangle_fs3=="T" else "entangle"
+                img_name =  f"{i}-{target}-{attmpt}"
+                imgs = torch.cat([img_orig, img_gen])
+                img_dir = f"results/{args.method}/{entangle}/"
+                os.makedirs(img_dir, exist_ok=True)
+                save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
+                with torch.no_grad():
+                    identity = idloss(img_orig, img_gen)[0]
+                    new_image_feature = text_model.encode_image(img_gen)
+                    cs, us, ip = text_model.evaluation(new_image_feature)
+                wandb.log({
+                    "Generated image": wandb.Image(imgs, caption=img_name), 
+                    "core semantic": np.round(cs, 3), 
+                    "unwanted semantics": np.round(us, 3), 
+                    "source positive": np.round(ip, 3),
+                    "identity loss": identity,
+                    "changed channels": num_c})
     wandb.finish() 
