@@ -122,7 +122,7 @@ def GetDt(target, model):
     return class_embedding
     
 
-def GetBoundary(fs3, dt, args, style_space, style_names):
+def GetBoundary(fs3, dt, args, style_space, style_names, top_k=False):
     """
     fs3: collection of predefined style directions for each channel (6048, 512)
     tmp: correlation of styles and deviation of text (target-neutral)
@@ -130,16 +130,27 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
         channelwise style movement * dText
     """
     tmp=np.dot(fs3,dt)
-    mu, sigma = tmp.mean(), tmp.std()
-    if args.q != 0:
-        threshold = mu + args.q * sigma
-    elif args.beta != 0:
-        threshold = args.beta
-    ds_imp=copy.copy(tmp)
-    select = np.abs(tmp)<threshold
-    num_c = np.sum(~select)
-    print(np.where(~select))
-    ds_imp[select] = 0
+    if not top_k:
+        mu, sigma = tmp.mean(), tmp.std()
+        if args.q != 0:
+            threshold = mu + args.q * sigma
+        elif args.beta != 0:
+            threshold = args.beta
+        else:
+            threshold = 0.0
+        ds_imp=copy.copy(tmp)
+        select = np.abs(tmp)<threshold
+        num_c = np.sum(~select)
+        print(np.where(~select))
+        ds_imp[select] = 0
+    else:
+        # Select by top-k
+        num_c = 50
+        _, idxs = torch.topk(torch.Tensor(tmp), num_c)
+        ds_imp = np.zeros_like(tmp)
+        for idx in idxs:
+            idx = idx.detach().cpu()
+            ds_imp[idx] = tmp[idx]
     tmp=np.abs(ds_imp).max()
     ds_imp/=tmp
     boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space)
