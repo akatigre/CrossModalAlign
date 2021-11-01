@@ -209,8 +209,7 @@ if __name__=="__main__":
                 img_name =  f"{i}-{target}-{attmpt}"
                 imgs = torch.cat([img_orig, img_gen])
                 img_dir = f"results/{args.method}/{entangle}/"
-                if not os.path.exists(img_dir):
-                    os.mkdir(img_dir)
+                os.makedirs(img_dir, exist_ok=True)
                 save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
                 with torch.no_grad():
                     identity = idloss(img_orig, img_gen)[0]

@@ -122,7 +122,7 @@ def GetDt(target, model):
     return class_embedding
     
 
-def GetBoundary(fs3, dt, args, style_space, style_names, top_k=False):
+def GetBoundary(fs3, dt, args, style_space, style_names):
     """
     fs3: collection of predefined style directions for each channel (6048, 512)
     tmp: correlation of styles and deviation of text (target-neutral)
@@ -130,7 +130,7 @@ def GetBoundary(fs3, dt, args, style_space, style_names, top_k=False):
         channelwise style movement * dText
     """
     tmp=np.dot(fs3,dt)
-    if not top_k:
+    if args.beta != 0.0:
         mu, sigma = tmp.mean(), tmp.std()
         if args.q != 0:
             threshold = mu + args.q * sigma

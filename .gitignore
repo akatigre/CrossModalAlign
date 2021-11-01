@@ -2,16 +2,15 @@
 ./results/*
 ./results
 
-# log 
+# pycache file
 ./global/__pycache__/*
 ./global/stylegan2/__pycache__/*
 ./global/criteria/__pycache__/*
 ./global/facial_recognition/__pycache__/*
 ./global/dnnlib/__pycache__/*
-
 *.pyc
 
-
+# Log & Results
 ./wandb/*
 global/wandb/*
 global/results/*
@@ -21,6 +20,12 @@ global/results/*
 ./pretrained_models/*
 global/npy/*
 ./global/npy/*
+
+# script 
+global/*.sh
+
+# text file
+global/*.txt
 
 
 *.pth 
