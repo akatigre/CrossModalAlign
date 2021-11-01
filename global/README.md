@@ -3,7 +3,6 @@
 1. npy/ffhq/fs3.npy 없음
 2. stylegan2/ 아래에 없음
 3. 최근 styleCLIP 깃헙에서 바뀐 IDLoss 사용 중 idloss(a, b)[0]에서 [0]빼고 사용
-4. 이미지는 내가 거꾸로 순서로 사용할테니 언니는 그냥 지금 방식대로 50장씩 쓰면 됨
 
 |_criteria: clip_loss & id_loss
 |_global: 깃허브에 업로드된 파일 / 없는 부분은 위에 적어둠
