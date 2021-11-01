@@ -3,7 +3,7 @@
 2. text_model.py Random interpolation model 정의
 
 
-global
+global <br>
   |_criteria: clip_loss & id_loss <br>
   |_global: 깃허브에 업로드된 파일 / 없는 부분은 위에 적어둠 <br>
   |_mapper: latent mapper <br>
