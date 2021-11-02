@@ -10,7 +10,7 @@
     
   * fs3.npy: global/npy/ffhq/ 아래에 위치함
 
-  * StyleGAN2 & ArcFace: global/pretrained_models/ 아래에 위치함
+  * StyleGAN2 & ArcFace: ./pretrained_models/ 아래에 위치함
 
 - 실험: StyleCLIP baseline 
   
