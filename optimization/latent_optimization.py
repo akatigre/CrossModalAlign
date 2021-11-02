@@ -41,7 +41,9 @@ def styleTransfer(args, device):
     mean_latent = g_ema.mean_latent(4096)
 
     if args.latent_path:
-        latent_code_init = torch.load(args.latent_path).to(device)
+        idx = 5
+        latent_code_init = torch.load(args.latent_path)[idx].to(device)
+        
     elif args.mode == "edit":
         latent_code_init_not_trunc = torch.randn(1, 512).to(device)
         with torch.no_grad():
@@ -147,9 +149,7 @@ if __name__=="__main__":
     import lpips
     lpips_alex = lpips.LPIPS(net='alex')
     args.lpips_alex = lpips_alex
-    args.latent_path = "mean latent" 
-
-    
+    args.latent_path = "../mapper/test_faces.pt"
     if args.method!="baseline":
         args.wplus_lambda = 0.015
         args.method = "RandomInterpolation"
