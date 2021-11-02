@@ -1,5 +1,17 @@
 ### Global Direction
 
+- Prepare
+  
+  Download fs3.npy, styleGAN2 pretrained model, ArcFace pretrained model and test faces from      https://drive.google.com/drive/folders/1LXGi5WF2uxRs0gRICDSkhhfYynTs2haL?usp=sharing
+
+  Create Docker Contrainer
+  
+  > bash docker/docker.sh
+    
+  * fs3.npy: global/npy/ffhq/ 아래에 위치함
+
+  * StyleGAN2 & ArcFace: global/pretrained_models/ 아래에 위치함
+
 - 실험: StyleCLIP baseline 
   
   <pre>
@@ -28,3 +40,25 @@
    
    > Extracts core semantics, unwanted semantics from target and source positives from the source <br>
      Use probabilistic approach to sample and create updated final target embedding
+     
+     
+     
+### Latent Optimization
+
+- 실험: StyleCLIP baseline 
+  
+  <pre>
+  <code>
+  cd global
+  python global.py --method "Baseline" --num_test 100 --topk 50
+  </code>
+  </pre>
+  
+- 실험: StyleCLIP Ours
+
+  <pre>
+  <code>
+  cd global 
+  python global.py --method "Random" --num_test 100 --topk 50
+  </code>
+  </pre>
