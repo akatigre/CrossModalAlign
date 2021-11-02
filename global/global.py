@@ -116,7 +116,7 @@ def encoder(G, latent):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP')
-    parser.add_argument('--method', type=str, default="baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
+    parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
     parser.add_argument('--disentangle_fs3', default="F", choices = ["T", "F"], help='Use disentangling fs3')
     parser.add_argument('--q', type=float, default=0., help='Quantile for selecting the threshold')
     parser.add_argument('--num_attempts', type=int, default=1, help="Number of iterations for diversity measurement")
@@ -149,17 +149,26 @@ if __name__=="__main__":
 
     if args.disentangle_fs3=="T" and args.method!="Baseline":
         # Disentangle style channels
+        fs3 = torch.Tensor(fs3)
+        fs3_tmp = fs3.clone()
+
         for i in range(len(fs3)):
-            fs3 = torch.Tensor(fs3)
             t = fs3[i, :]
             sim = torch.Tensor(fs3 @ t.T)
-            _, core = torch.topk(sim, k=1)
+            index_list = torch.LongTensor([idx for idx in range(sim.shape[0])])
+            core = sim.ge(0.9)
+            core = index_list[core]
             _, us = torch.topk(sim, k=3)
-            us_fs3 = torch.stack([fs3[i] for i in us if i not in core])
-            weights = torch.stack([sim[i] for i in us if i not in core])
+            mask = torch.LongTensor([idx for idx in us if idx not in core])
+            us_fs3 = fs3[mask]
+            if us_fs3.shape[0] == 0:
+                continue
+            weights = sim[mask]
             int_sem = l2norm(torch.mm(weights.unsqueeze(0), us_fs3))
-            fs3[i, :] = projection(basis=t, target=int_sem)
-            fs3 = fs3.numpy()
+            fs3_tmp[i, :] = projection(basis=t, target=int_sem)
+
+        fs3 = fs3_tmp
+
     test_latents = torch.load("../mapper/test_faces.pt", map_location='cpu')
     test_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:, :]).cpu()
     if args.method == "Baseline":

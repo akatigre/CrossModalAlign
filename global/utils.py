@@ -145,8 +145,8 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
         ds_imp[select] = 0
     else:
         # Select by top-k
-        num_c = 50
-        _, idxs = torch.topk(torch.Tensor(tmp), num_c)
+        num_c = args.topk
+        _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
         ds_imp = np.zeros_like(tmp)
         for idx in idxs:
             idx = idx.detach().cpu()

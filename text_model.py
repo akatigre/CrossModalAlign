@@ -64,7 +64,7 @@ class RandomInterpolation(nn.Module):
         print(f"core: {self.core_cond.shape[0]} unwanted: {self.text_cond.shape[0]}")
         w = torch.stack([probs[i] for i in text_mask]).unsqueeze(0).cuda()
         condition = l2norm(torch.mm(w, self.text_cond))
-        self.text_feature = self.projection(basis=self.text_feature, target=condition) #- self.text_feature # basis=condition, target=text feature do not work
+        self.text_feature = self.projection(basis=self.text_feature.squeeze(0), target=condition.squeeze(0)).unsqueeze(0) #- self.text_feature # basis=condition, target=text feature do not work
        
         self.text_feature = l2norm(self.text_feature)
 
@@ -74,7 +74,8 @@ class RandomInterpolation(nn.Module):
         weight = self.erdos_renyi(self.text_feature.unsqueeze(0), self.core_cond, temp)
         # weight = torch.rand(N).to(self.device).unsqueeze(0)
         tmp = torch.matmul(weight, self.core_cond)
-        self.text_feature = self.projection(basis=l2norm(tmp), target=self.text_feature) 
+        self.text_feature = self.projection(basis=l2norm(tmp).squeeze(0), target=self.text_feature.squeeze(0))
+        self.text_feature = self.text_feature.unsqueeze(0) 
 
     def over_quant(self, probs, q, plot=False, title=None):
         # _, indices = torch.topk(probs, k=top)
@@ -177,5 +178,7 @@ class RandomInterpolation(nn.Module):
         plt.plot(x, stats.norm.pdf(x, mu, sigma))
         plt.grid(True)
         plt.title(f"{title}")
+        if not os.path.exists('results/'):
+            os.mkdir('results/')
         plt.savefig(f"results/{title}.png")
         plt.clf()
