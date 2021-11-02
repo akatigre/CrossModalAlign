@@ -45,8 +45,8 @@
      
      
 ### Latent Optimization
+- **Change $DESCRIPTION, $METHOD in run.sh**  
 
-  **change $DESCRIPTION, $METHOD in run.sh**  
   <pre>
   <code>
   cd optimization
