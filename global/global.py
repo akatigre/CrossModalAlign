@@ -76,7 +76,7 @@ def decoder(G, style_space, latent, noise):
     ):
         out = conv_warper(conv1, out, style_space[i], noise=noise1)
         out = conv_warper(conv2, out, style_space[i+1], noise=noise2)
-        skip = to_rgb(out, latent[:, j + 2], skip)
+        skip = to_rgb(out,  latent[:, j + 2], skip)
 
         i += 3; j += 2
 
@@ -161,7 +161,7 @@ if __name__=="__main__":
             fs3[i, :] = projection(basis=t, target=int_sem)
             fs3 = fs3.numpy()
     test_latents = torch.load("../mapper/test_faces.pt", map_location='cpu')
-    test_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:, :]).cpu() #
+    test_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:, :]).cpu()
     if args.method == "Baseline":
         exp_name = f"method{args.method}"
     else:
@@ -175,7 +175,8 @@ if __name__=="__main__":
         hard_test = ["asian", "muslim", "black", "latin", "european", "female", "male", "old", "young"]
         descriptions = hard_test
 
-    wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config = vars(args))
+    wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config = config)
+        
     for target in descriptions:
         for i, latent in enumerate(test_latents):
             latent = latent.unsqueeze(0).cuda()

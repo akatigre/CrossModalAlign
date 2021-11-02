@@ -1,28 +1,25 @@
 # Generated Image
-./results/*
-./results
+results/*
 
 # pycache file
-./global/__pycache__/*
-./global/stylegan2/__pycache__/*
-./global/criteria/__pycache__/*
-./global/facial_recognition/__pycache__/*
-./global/dnnlib/__pycache__/*
+global/__pycache__/*
+global/stylegan2/__pycache__/*
+global/criteria/__pycache__/*
+global/facial_recognition/__pycache__/*
+global/dnnlib/__pycache__/*
 *.pyc
 
 # Log & Results
-./wandb/*
+wandb/*
 global/wandb/*
 global/results/*
 
-# pretrained model 
-./global/npy/*
-./pretrained_models/*
-global/npy/*
-./global/npy/*
-
-# script 
+# scripts
 global/*.sh
+
+# pretrained model 
+global/npy/*
+pretrained_models/*
 
 # text file
 global/*.txt

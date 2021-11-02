@@ -56,7 +56,6 @@ class RandomInterpolation(nn.Module):
         self.image_cond = torch.stack([PROTOTYPES[idx] for idx in self.ip_mask])
 
     def extract_text_negative(self):
-        
         probs = (self.text_feature @ PROTOTYPES.T).squeeze(0).detach().cpu()
         self.tp_mask = self.over_quant(probs, 0.95, plot=True, title="Prototype Similarity with Text Positives")
         self.sc_mask = self.over_quant(probs, 0.99, plot=True, title="Prototype Similarity with Text Core Semantics")
@@ -72,8 +71,10 @@ class RandomInterpolation(nn.Module):
 
     def diverse_text(self):
         N = self.core_cond.shape[0]
-        tmp = torch.rand(N).to(self.device).unsqueeze(0)
-        tmp = torch.matmul(tmp, self.core_cond)
+        temp = torch.Tensor([self.args.temperature]*N).cuda()
+        weight = self.erdos_renyi(self.text_feature.unsqueeze(0), self.core_cond, temp)
+        # weight = torch.rand(N).to(self.device).unsqueeze(0)
+        tmp = torch.matmul(weight, self.core_cond)
         self.text_feature = self.projection(basis=l2norm(tmp), target=self.text_feature) 
 
     def over_quant(self, probs, q, plot=False, title=None):
@@ -114,7 +115,7 @@ class RandomInterpolation(nn.Module):
 
 
     def forward(self):
-        # er = self.erdos_renyi(self.image_feature.unsqueeze(0), self.image_cond)
+        # er = self.erdos_renyi(self.image_feature.unsqueeze(0), self.image_cond, self.temperature)
         # weights = F.normalize(ers, p=1, dim=1) # Interpolation
         weights = self.compute_edge_logits(self.image_feature.unsqueeze(0)[0], self.image_cond)
         image_manifold = l2norm(torch.mm(weights, self.image_cond))
@@ -122,9 +123,9 @@ class RandomInterpolation(nn.Module):
         return image_manifold, torch.abs(gamma)
     
 
-    def erdos_renyi(self, center, attrs):
+    def erdos_renyi(self, center, attrs, temp):
         random_edges = self.compute_edge_logits(center[0], attrs)
-        random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=random_edges, temperature=self.temperature)
+        random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=random_edges, temperature=temp)
         sampled_edges = random_edges.rsample()
         return sampled_edges
 
