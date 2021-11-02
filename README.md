@@ -37,7 +37,7 @@
   * easy: Use easy descriptions as target text (store_true)
 
 
-**python text_model.py** : RandomInterpolation defined
+**text_model.py** : RandomInterpolation defined
    
    > Extracts core semantics, unwanted semantics from target and source positives from the source <br>
      Use probabilistic approach to sample and create updated final target embedding
