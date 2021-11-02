@@ -45,20 +45,11 @@
      
 ### Latent Optimization
 
-- 실험: StyleCLIP baseline 
-  
+  **change $DESCRIPTION, $METHOD in run.sh**  
   <pre>
   <code>
-  cd global
-  python global.py --method "Baseline" --num_test 100 --topk 50
+  cd optimization
+  bash run.sh
   </code>
   </pre>
-  
-- 실험: StyleCLIP Ours
 
-  <pre>
-  <code>
-  cd global 
-  python global.py --method "Random" --num_test 100 --topk 50
-  </code>
-  </pre>
