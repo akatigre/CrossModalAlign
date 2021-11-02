@@ -89,7 +89,7 @@ class RandomInterpolation(nn.Module):
         return indices
         
     def evaluation(self, new_image_feature):
-        """Evaluates manipulative quality & disentanglement in the generated image using celebA attributes
+        """Evaluates manipulative quality & disentanglement in the generated image
         1. Core semantic: Increased (self.core_cond)
         2. Unwanted semantic: Do not increase (self.text_cond)
         3. Image positive: Do not decrease (self.image_cond)
