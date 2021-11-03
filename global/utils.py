@@ -130,7 +130,8 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
         channelwise style movement * dText
     """
     tmp=np.dot(fs3,dt)
-    if args.beta != 0.0:
+    if args.topk == 0.0:
+        # Select by Threshold
         mu, sigma = tmp.mean(), tmp.std()
         if args.q != 0:
             threshold = mu + args.q * sigma

@@ -141,8 +141,8 @@ if __name__=="__main__":
     # Load pretrained stylegan2 pytorch
     generator.load_state_dict(torch.load("../pretrained_models/stylegan2-ffhq-config-f.pt", map_location='cpu')['g_ema'])
     generator.eval()
-    generator.cuda()
-    idloss = IDLoss(args).cuda()
+    generator.to(device)
+    idloss = IDLoss(args).to(device)
     model, preprocess = clip.load("ViT-B/32", device = device)
     fs3 = np.load('./npy/ffhq/fs3.npy') # 6048, 512
     np.set_printoptions(suppress=True)
@@ -195,7 +195,7 @@ if __name__=="__main__":
                     img_orig = decoder(generator, style_space, latent, noise_constants)
                     target_embedding = GetDt(target, model)
                     args.description = target_embedding.unsqueeze(0).float()
-                    text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args)
+                    text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args, fs3)
                     text_model.cuda()
 
                 # StyleCLIP GlobalDirection 
