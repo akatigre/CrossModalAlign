@@ -1,19 +1,19 @@
-import torch
-import clip
-import argparse
-from stylegan2.models import Generator
-import numpy as np
-from torch.nn import functional as F
-from utils import *
-from torchvision.utils import save_image
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+import torch
+from utils import *
+import clip
+import argparse
+from models.stylegan2.models import Generator
+import numpy as np
+from torch.nn import functional as F
+from utils.utils import *
+from torchvision.utils import save_image
 from criteria.id_loss import IDLoss
 import wandb
 from text_model import RandomInterpolation
-from attributes import test_easy
-
+np.set_printoptions(suppress=True)
 def conv_warper(layer, input, style, noise):
     # the conv should change
     conv = layer.conv
@@ -110,23 +110,18 @@ def encoder(G, latent):
     return style_space, style_names, noise_constants
 
 
-    
-
-
-
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP')
     parser.add_argument('--method', type=str, default="baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
-    parser.add_argument('--disentangle_fs3', default="F", choices = ["T", "F"], help='Use disentangling fs3')
-    parser.add_argument('--q', type=float, default=0., help='Quantile for selecting the threshold')
     parser.add_argument('--num_attempts', type=int, default=1, help="Number of iterations for diversity measurement")
     parser.add_argument('--beta', type=float, default=0.)
     parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify")
-    parser.add_argument('--src_lambda', type=float, default=1.5, help="weight for preserving the information of source")
+    parser.add_argument('--trg_lambda', type=float, default=2.0, help="weight for preserving the information of target")
     parser.add_argument('--num_test', type=int, default=1, help="Number of latents to use for manipulation")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
     parser.add_argument('--easy', action="store_true", default=False)
-    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
+    parser.add_argument("--ir_se50_weights", type=str, default="../models/model_ir_se50.pth")
+    parser.add_argument("--stylegan_weights", type=str, default="../models/stylegan2-ffhq-config-f.pt")
     args = parser.parse_args()
     device = "cuda:0"
     config = {"latent" : 512, "n_mlp" : 8, "channel_multiplier": 2}
@@ -138,88 +133,83 @@ if __name__=="__main__":
             channel_multiplier = config["channel_multiplier"]
         )
     
-    # Load pretrained stylegan2 pytorch
-    generator.load_state_dict(torch.load("../pretrained_models/stylegan2-ffhq-config-f.pt", map_location='cpu')['g_ema'])
+    generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
     generator.eval()
     generator.cuda()
+
     idloss = IDLoss(args).cuda()
     model, preprocess = clip.load("ViT-B/32", device = device)
-    fs3 = np.load('./npy/ffhq/fs3.npy') # 6048, 512
-    np.set_printoptions(suppress=True)
+    fs3 = np.load("./npy/ffhq/fs3.npy") # 6048, 512
+ 
+    test_latents = torch.load("../models/test_faces.pt", map_location='cpu')
+    # test_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:, :]).cpu()
+    test_latents = torch.Tensor(test_latents[25, :, :]).cpu()
 
-    if args.disentangle_fs3=="T" and args.method!="Baseline":
-        # Disentangle style channels
-        for i in range(len(fs3)):
-            fs3 = torch.Tensor(fs3)
-            t = fs3[i, :]
-            sim = torch.Tensor(fs3 @ t.T)
-            _, core = torch.topk(sim, k=1)
-            _, us = torch.topk(sim, k=3)
-            us_fs3 = torch.stack([fs3[i] for i in us if i not in core])
-            weights = torch.stack([sim[i] for i in us if i not in core])
-            int_sem = l2norm(torch.mm(weights.unsqueeze(0), us_fs3))
-            fs3[i, :] = projection(basis=t, target=int_sem)
-            fs3 = fs3.numpy()
-    test_latents = torch.load("../mapper/test_faces.pt", map_location='cpu')
-    test_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:, :]).cpu() #
     if args.method == "Baseline":
         exp_name = f"method{args.method}"
     else:
-        exp_name = f'method{args.method}-chNum{args.topk}-src{args.src_lambda}'
-        
+        newfs3 = disentangle_fs3(fs3)
+        np.save("pca5fs3.npy", newfs3)
+        print(f"Original: {uniform_loss(fs3)} After Disentangle: {uniform_loss(newfs3)}")
+        fs3 = newfs3
+        exp_name = f'method{args.method}-chNum{args.topk}-src{args.trg_lambda}'
     if args.easy:
         exp_name += "easy"
-        descriptions = test_easy
+        descriptions = ["asian", "grey hair", "red hair", "wears earrings"]
     else:
         exp_name += 'hard'
-        hard_test = ["asian", "muslim", "black", "latin", "european", "female", "male", "old", "young"]
+        hard_test = []
         descriptions = hard_test
 
     wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config = vars(args))
     for target in descriptions:
-        for i, latent in enumerate(test_latents):
-            latent = latent.unsqueeze(0).cuda()
-            for attmpt in range(args.num_attempts):
-                with torch.no_grad():
-                    style_space, style_names, noise_constants = encoder(generator, latent)
-                    img_orig = decoder(generator, style_space, latent, noise_constants)
-                    target_embedding = GetDt(target, model)
-                    args.description = target_embedding.unsqueeze(0).float()
-                    text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args)
-                    text_model.cuda()
+        # for i, latent in enumerate(list(test_latents)):
+        latent = test_latents.unsqueeze(0).cuda()
+        i = "test"
+        
+        for attmpt in range(args.num_attempts):
+            with torch.no_grad():
+                style_space, style_names, noise_constants = encoder(generator, latent)
+                img_orig = decoder(generator, style_space, latent, noise_constants)
+                target_embedding = GetDt(target, model)
+            args.description = target_embedding.unsqueeze(0).float()
+            text_model = RandomInterpolation(512, model, preprocess, device, img_orig, args, fs3)
+            text_model.cuda()
+            # StyleCLIP GlobalDirection 
+            if args.method=="Baseline":
+                target_embedding = target_embedding.detach().cpu().numpy()
+                target_embedding = target_embedding/np.linalg.norm(target_embedding)
+            else:
+            # Random Interpolation
+                image_manifold, gamma = text_model()
+                disen_text = text_model.text_feature
+                #! Use target_embedding instead of disen_text
+                text_star = l2norm(args.trg_lambda * gamma * disen_text + image_manifold)
+                target_embedding = text_star.squeeze(0).detach().cpu().numpy()
 
-                # StyleCLIP GlobalDirection 
-                if args.method=="Baseline":
-                    target_embedding = target_embedding.detach().cpu().numpy()
-                    target_embedding = target_embedding/np.linalg.norm(target_embedding)
-                else:
-                # Random Interpolation
-                    text_feature = text_model.text_feature
-                    image_manifold, gamma = text_model()
-                    text_star = l2norm(args.src_lambda * gamma * text_feature + image_manifold)
-                    target_embedding = text_star.squeeze(0).detach().cpu().numpy()
+            boundary_tmp2, num_c, dlatents = GetBoundary(fs3, target_embedding, args, style_space, style_names) # Move each channel by dStyle
+            dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
+            codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
+            img_gen = decoder(generator, codes, latent, noise_constants)
+            
+            # Save each image in proper directory
+            img_name =  f"{i}-{args.method}-{target}-{attmpt}"
+            imgs = torch.cat([img_orig, img_gen])
+            # img_dir = f"results/{args.method}/{entangle}/"
+            # if not os.path.exists(img_dir):
+            #     os.mkdir(img_dir)
 
-                boundary_tmp2, num_c, dlatents = GetBoundary(fs3, target_embedding, args, style_space, style_names) # Move each channel by dStyle
-                dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
-                codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
-                img_gen = decoder(generator, codes, latent, noise_constants)
-                
-                # Save each image in proper directory
-                entangle = "disentangle" if args.disentangle_fs3=="T" else "entangle"
-                img_name =  f"{i}-{target}-{attmpt}"
-                imgs = torch.cat([img_orig, img_gen])
-                img_dir = f"results/{args.method}/{entangle}/"
-                os.makedirs(img_dir, exist_ok=True)
-                save_image(imgs, os.path.join(img_dir, f"{img_name}.png"), normalize=True, range=(-1, 1))
-                with torch.no_grad():
-                    identity = idloss(img_orig, img_gen)[0]
-                    new_image_feature = text_model.encode_image(img_gen)
-                    cs, us, ip = text_model.evaluation(new_image_feature)
-                wandb.log({
-                    "Generated image": wandb.Image(imgs, caption=img_name), 
-                    "core semantic": np.round(cs, 3), 
-                    "unwanted semantics": np.round(us, 3), 
-                    "source positive": np.round(ip, 3),
-                    "identity loss": identity,
-                    "changed channels": num_c})
-    wandb.finish() 
+            save_image(imgs, f"{img_name}.png", normalize=True, range=(-1, 1))
+            with torch.no_grad():
+                identity = idloss(img_orig, img_gen)[0]
+                new_image_feature = text_model.encode_image(img_gen)
+                cs, us, ip = text_model.evaluation(new_image_feature)
+
+            wandb.log({
+                "Generated image": wandb.Image(imgs, caption=img_name),
+                "core semantic": np.round(cs, 3), 
+                "unwanted semantics": np.round(us, 3), 
+                "source positive": np.round(ip, 3),
+                "identity loss": identity,
+                "changed channels": num_c})
+wandb.finish() 
