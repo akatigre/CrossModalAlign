@@ -13,6 +13,7 @@ global/dnnlib/__pycache__/*
 wandb/*
 global/wandb/*
 global/results/*
+mapper/*
 
 # scripts
 global/*.sh
@@ -24,6 +25,6 @@ pretrained_models/*
 # text file
 global/*.txt
 
-
+global/*/*.pt
 *.pth 
 *.pt
