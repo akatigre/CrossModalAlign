@@ -11,7 +11,6 @@ import torch.distributions as D
 from functools import partial
 import scipy.stats as stats
 
-PROTOTYPES = torch.Tensor(np.load('./npy/ffhq/fs3.npy')).cuda() #6048, 512
 l2norm = partial(F.normalize, p=2, dim=1)
 
 class RandomInterpolation(nn.Module):
@@ -22,7 +21,8 @@ class RandomInterpolation(nn.Module):
         preprocess,
         device,
         img_orig,
-        args
+        args, 
+        PROTOTYPES
     ):
         super().__init__()
         self.model, self.preprocess = model, preprocess
@@ -31,7 +31,7 @@ class RandomInterpolation(nn.Module):
         self.edge_scaling = nn.Parameter(torch.tensor(1.0 * latent_size).sqrt().log())
         self.device = device
         self.args = args
-        self.prototypes = PROTOTYPES
+        self.prototypes = PROTOTYPES.to(self.device)
 
         self.image_feature = self.encode_image(img_orig)
         if isinstance(args.description, str):
@@ -50,30 +50,33 @@ class RandomInterpolation(nn.Module):
             self.diverse_text()
 
     def extract_image_positive(self):
-        clip_sim = (self.image_feature @ PROTOTYPES.T).squeeze(0).detach().cpu()
+        clip_sim = (self.image_feature @ self.prototypes.T).squeeze(0).detach().cpu()
         self.ip_mask = self.over_quant(clip_sim, 0.95, plot=True, title="Prototype Similarity with Image Positives")
-        self.image_cond = torch.stack([PROTOTYPES[idx] for idx in self.ip_mask])
+        self.image_cond = torch.stack([self.prototypes[idx] for idx in self.ip_mask])
 
     def extract_text_negative(self):
-        
-        probs = (self.text_feature @ PROTOTYPES.T).squeeze(0).detach().cpu()
+        probs = (self.text_feature @ self.prototypes.T).squeeze(0).detach().cpu()
         self.tp_mask = self.over_quant(probs, 0.95, plot=True, title="Prototype Similarity with Text Positives")
         self.sc_mask = self.over_quant(probs, 0.99, plot=True, title="Prototype Similarity with Text Core Semantics")
         text_mask = [i for i in self.tp_mask if i not in self.sc_mask]
-        self.core_cond = torch.stack([PROTOTYPES[idx] for idx in self.sc_mask])
-        self.text_cond = torch.stack([PROTOTYPES[idx] for idx in text_mask])
+        self.core_cond = torch.stack([self.prototypes[idx] for idx in self.sc_mask])
+        self.text_cond = torch.stack([self.prototypes[idx] for idx in text_mask])
         print(f"core: {self.core_cond.shape[0]} unwanted: {self.text_cond.shape[0]}")
         w = torch.stack([probs[i] for i in text_mask]).unsqueeze(0).cuda()
         condition = l2norm(torch.mm(w, self.text_cond))
-        self.text_feature = self.projection(basis=self.text_feature, target=condition) #- self.text_feature # basis=condition, target=text feature do not work
+        self.text_feature = self.projection(basis=self.text_feature.squeeze(0), target=condition.squeeze(0)).unsqueeze(0) #- self.text_feature # basis=condition, target=text feature do not work
        
         self.text_feature = l2norm(self.text_feature)
 
     def diverse_text(self):
         N = self.core_cond.shape[0]
-        tmp = torch.rand(N).to(self.device).unsqueeze(0)
-        tmp = torch.matmul(tmp, self.core_cond)
-        self.text_feature = self.projection(basis=l2norm(tmp), target=self.text_feature) 
+        temp = torch.Tensor([self.args.temperature]*N).cuda()
+        weight = self.erdos_renyi(self.text_feature.unsqueeze(0), self.core_cond, temp)
+        # weight = self.compute_edge_logits(self.text_feature.unsqueeze(0)[0], self.core_cond)
+        # weight = torch.rand(N).to(self.device).unsqueeze(0)
+        tmp = torch.matmul(weight, self.core_cond)
+        self.text_feature = self.projection(basis=l2norm(tmp).squeeze(0), target=self.text_feature.squeeze(0))
+        self.text_feature = self.text_feature.unsqueeze(0) 
 
     def over_quant(self, probs, q, plot=False, title=None):
         # _, indices = torch.topk(probs, k=top)
@@ -100,9 +103,9 @@ class RandomInterpolation(nn.Module):
         cs = (af - bf).mean(dim=1)
 
         # Unwanted semantic (exclude anchors from image positive)
-        conditions = torch.stack([PROTOTYPES[idx] for idx in self.unwanted_mask])
-        bf = self.image_feature @ self.text_cond.T
-        af = new_image_feature @ self.text_cond.T
+        conditions = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
+        bf = self.image_feature @ conditions.T
+        af = new_image_feature @ conditions.T
         us = (af - bf).mean(dim=1)
         
         # Image Positive
@@ -113,7 +116,7 @@ class RandomInterpolation(nn.Module):
 
 
     def forward(self):
-        # er = self.erdos_renyi(self.image_feature.unsqueeze(0), self.image_cond)
+        # er = self.erdos_renyi(self.image_feature.unsqueeze(0), self.image_cond, self.temperature)
         # weights = F.normalize(ers, p=1, dim=1) # Interpolation
         weights = self.compute_edge_logits(self.image_feature.unsqueeze(0)[0], self.image_cond)
         image_manifold = l2norm(torch.mm(weights, self.image_cond))
@@ -121,9 +124,9 @@ class RandomInterpolation(nn.Module):
         return image_manifold, torch.abs(gamma)
     
 
-    def erdos_renyi(self, center, attrs):
+    def erdos_renyi(self, center, attrs, temp):
         random_edges = self.compute_edge_logits(center[0], attrs)
-        random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=random_edges, temperature=self.temperature)
+        random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=random_edges, temperature=temp)
         sampled_edges = random_edges.rsample()
         return sampled_edges
 
@@ -176,5 +179,7 @@ class RandomInterpolation(nn.Module):
         plt.plot(x, stats.norm.pdf(x, mu, sigma))
         plt.grid(True)
         plt.title(f"{title}")
+        if not os.path.exists('results/'):
+            os.mkdir('results/')
         plt.savefig(f"results/{title}.png")
         plt.clf()
