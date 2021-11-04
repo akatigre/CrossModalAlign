@@ -25,8 +25,10 @@ if __name__=="__main__":
     parser.add_argument('--trg_lambda', type=float, default=2.0, help="weight for preserving the information of target")
     parser.add_argument('--num_test', type=int, default=100, help="Number of latents to use for manipulation")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
-    parser.add_argument("--ir_se50_weights", type=str, default="../models/model_ir_se50.pth")
-    parser.add_argument("--stylegan_weights", type=str, default="../models/stylegan2-ffhq-config-f.pt")
+    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
+    parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
+    parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
+    parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
     args = parser.parse_args()
     device = "cuda:0"
@@ -42,9 +44,9 @@ if __name__=="__main__":
     generator.eval()
     generator.cuda()
 
-    fs3 = np.load("./npy/ffhq/fs3.npy") # 6048, 512
+    fs3 = np.load(args.fs3_path)
  
-    test_latents = torch.load("../models/test_faces.pt", map_location='cpu')
+    test_latents = torch.load(args.latents_path, map_location='cpu')
     subset_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:len(test_latents), :, :]).cpu()
 
     if args.method == "Baseline":
@@ -101,7 +103,7 @@ if __name__=="__main__":
                 os.mkdir(img_dir)
 
             imgs = torch.cat([img_orig, img_gen])
-            save_image(imgs, f"{img_name}.png", normalize=True, range=(-1, 1))
+            save_image(imgs, f"{img_dir}{img_name}.png", normalize=True, range=(-1, 1))
 
             with torch.no_grad():
                 identity, cs, us, ip = align_model.evaluation(img_orig, img_gen)
