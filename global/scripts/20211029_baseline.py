@@ -15,17 +15,17 @@ settings = [
     {
         'command': 'global.py',
         'args': {
-            "method": method,
-            "beta": beta,
-            "disentangle_fs3":'F',
-            "num_test": 50,
+            "method": "Baseline",
+            "topk": num_c,
+            "num_test": 100,
+            "target": text,
         }
     }
-    for method in ["Baseline"]
-    for beta in [0.08, 0.1, 0.12]
+    for num_c in [30, 50, 70, 90, 110, 130, 150, 170, 190, 210]
+    for text in ["asian", "he wears lipstick", "pointy nose", "ginger hair", "grumpy man", "heavy makeup"]
 ]
 
-print(f'num settings: {len(settings)+1}')
+print(f'num settings: {len(settings)}')
 
 total_multirun_size = len(available_gpus) * processes_per_gpu
 experiments_per_gpu = [[] for _ in range(total_multirun_size)]

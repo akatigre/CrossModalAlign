@@ -15,18 +15,19 @@ settings = [
     {
         'command': 'global.py',
         'args': {
-            "method": method,
-            "q": q,
-            "disentangle_fs3": tf,
-            "num_test": 50,
+            "method": "Random",
+            "topk": num_c,
+            "num_test": 100,
+            "trg_lambda": lmbd,
+            "target": text
         }
     }
-    for method in ["Random"]
-    for q in [1.96, 2.33, 2.58]
-    for tf in ["T", "F"]
+    for num_c in [30, 50, 70, 90, 110, 130, 150, 170, 190, 210]
+    for lmbd in [1.0, 1.5, 2.0]
+    for text in ["asian", "wears lipstick", "pointy nose", "ginger hair", "grumpy man", "heavy makeup"]
 ]
 
-print(f'num settings: {len(settings)+1}')
+print(f'num settings: {len(settings)}')
 
 total_multirun_size = len(available_gpus) * processes_per_gpu
 experiments_per_gpu = [[] for _ in range(total_multirun_size)]
