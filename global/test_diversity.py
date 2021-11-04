@@ -1,28 +1,39 @@
 # python test_diversity.py --wandb --dir "global/results/Random/entangle"
-
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+
 import glob
 import torch
 import wandb
 import lpips
 import argparse
 from PIL import Image
-import PIL
 from tqdm import tqdm
 from torchvision import transforms
 from torchvision.transforms.functional import crop
 
-def pairwise_lpips(model, a, b, c):
-    tmp = model.forward(a, b)
-    tmp1 = model(a, c)
-    tmp2 = model(b, c)
+from criteria.id_loss import IDLoss
+
+def pairwise_lpips(model, imgs):
+    if len(imgs) == 1: 
+        return -1
+    if len(imgs) == 2:
+        return model.forward(imgs[0], imgs[1])
+    
+    tmp = model.forward(imgs[0], imgs[1])
+    tmp1 = model(imgs[0], imgs[1])
+    tmp2 = model(imgs[1], imgs[2])
     return (tmp+tmp1+tmp2)*1.0 / 3.0
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", type=str, help="directory of the input image")
     parser.add_argument("--gpu", type=int, default=0, help="use specific gpu")
     parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
+    parser.add_argument("--conditioned", type=bool, default=True)
 
     args = parser.parse_args()
 
@@ -41,7 +52,8 @@ if __name__ == "__main__":
 
     device = f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
 
- 
+    criteria = IDLoss(args).to(device)
+
     lpips_alex = lpips.LPIPS(net='alex')
     lpips_alex = lpips_alex.to(device)
 
@@ -50,28 +62,39 @@ if __name__ == "__main__":
 
     pbar = tqdm(name_list)
 
+    image1 = Image.open(f"{name_list[0]}-0.png", 'r')
+    size = 1024
+
     with torch.no_grad():
         for name in pbar:
-            # name = name.replace(' ', '\ ')
-            file_name = os.path.join(args.dir, name)
-            try: 
-                image1 = Image.open(name+"-0.png", 'r')
-                img_width = image1.width
-                img_height = image1.height
-                image1 = toTorch(crop(image1, top=0, left=img_width //2 , height=img_height, width =img_width//2)).to(device)
-                image2 = toTorch(crop(Image.open(name+"-1.png", 'r'), top=0, left=img_width //2 , height=img_height, width =img_width//2)).to(device)
-                image3 = toTorch(crop(Image.open(name+"-2.png", 'r'), top=0, left=img_width //2 , height=img_height, width =img_width//2)).to(device)
-        
+            images = []
+            try:
+                for idx in range(3):
+                    img = Image.open(f"{name}-{idx}.png", 'r')
+
+                    img_src = toTorch(crop(img, top=2, left=2 , height=size, width = size)).to(device)
+                    img_src = img_src.unsqueeze(0)
+                    img_tgt = toTorch(crop(img, top=2, left=size+4 , height=size, width =size)).to(device)
+                    img_tgt = img_tgt.unsqueeze(0)
+                    id_loss = criteria(img_src, img_tgt)[0]
+
+                    if args.conditioned and id_loss > 0.35:
+                        continue
+
+                    img = toTorch(crop(img, top=2, left=size+4, height=size, width = size)).to(device)
+                    images.append(img)
+      
             except OSError:
                 continue
-            
-            
-            value = pairwise_lpips(lpips_alex, image1, image2, image3)
+
+            value = pairwise_lpips(lpips_alex, images)
+            if value == -1:
+                continue
             values.append(value.detach().cpu()[0][0][0][0])
 
-            del image1
-            del image2
-            del image3
+            for img in images:
+                del img
+            del images
             pbar.set_description(f"Processing {name}")
 
     mean_value = sum(values) / len(values)
