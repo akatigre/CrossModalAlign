@@ -131,11 +131,7 @@ if __name__=="__main__":
 
             imgs = torch.cat([img_orig, img_gen]) #shape : [2, 3, 1024, 1024]
 
-             
-            if not args.nsml:
-                save_image(imgs, f"{img_dir}{img_name}.png", normalize=True, range=(-1, 1))
-                # nsml 에서 내부 이미지 변화시켜야 함 
-
+            save_image(imgs, f"{img_dir}{img_name}.png", normalize=True, range=(-1, 1))
             
             with torch.no_grad():
                 identity, cs, us, ip = align_model.evaluation(img_orig, img_gen)
