@@ -1,0 +1,10 @@
+../pretrained_models/*
+results/*
+docker/*
+wandb/*
+npy/*
+scripts/*
+
+__pycache__/*
+
+

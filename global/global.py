@@ -1,23 +1,27 @@
+from genericpath import exists
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 import torch
-from utils import *
+import tensorflow as tf
+import tarfile
 import argparse
-from models.stylegan2.models import Generator
 import numpy as np
 np.set_printoptions(suppress=True)
-from utils.utils import *
-from torchvision.utils import save_image
-import wandb
-from model import CrossModalAlign
 
+from torchvision.utils import save_image
+from torchvision.transforms import ToPILImage
+
+from utils import *
+from utils.utils import *
+from model import CrossModalAlign
+from models.stylegan2.models import Generator
 
 descriptions = ["asian", "grey hair", "red hair", "wears earrings", "smiling", "african", "terrorist"]
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
-    parser.add_argument('--method', type=str, default="baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
+    parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
     parser.add_argument('--target', type=str, help="Target text to manipulate the source image")
     parser.add_argument('--num_attempts', type=int, default=5, help="Number of iterations for diversity measurement")
     parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify")
@@ -30,8 +34,10 @@ if __name__=="__main__":
     parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
     parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
+    parser.add_argument("--wandb", type=bool, default=True, help="Whether to activate the wandb")
+    parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
     args = parser.parse_args()
-    device = "cuda:0"
+    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
     
     generator = Generator(
             size = 1024, # size of generated image
@@ -39,10 +45,28 @@ if __name__=="__main__":
             n_mlp = 8,
             channel_multiplier = 2
         )
+
+    if args.nsml: 
+        import nsml
+        # if os.path.exists(os.path.join('..', nsml.DATASET_PATH, 'train')):
+        #     print("exist 1")
+        #     print(os.listdir(os.path.join('..', nsml.DATASET_PATH, 'train')))
+        # print(os.listdir(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz')))
     
+        with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:
+            f.extractall()
+
+        print(os.listdir('./'))
+
+        args.stylegan_weights = os.path.join("pretrained_models", "stylegan2-ffhq-config-f.pt")
+        args.fs3_path = os.path.join("global","npy", "ffhq", "fs3.npy")
+        args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
+        args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
+        args.wandb = False
+
     generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
     generator.eval()
-    generator.cuda()
+    generator.to(device)
 
     fs3 = np.load(args.fs3_path)
  
@@ -55,7 +79,8 @@ if __name__=="__main__":
         fs3 = disentangle_fs3(fs3)
         exp_name = f'method{args.method}-chNum{args.topk}-targetWeight{args.trg_lambda}'
     else:
-        NotImplementedError()
+        exp_name = None
+        exit(-1)
 
     config = {
         "target": args.target,
@@ -64,17 +89,19 @@ if __name__=="__main__":
         "target weights": args.trg_lambda,
     }
 
-    wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config=config)
+    if args.wandb:
+        import wandb
+        wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config=config)
     align_model = CrossModalAlign(512, args)
-    align_model.cuda()
-    align_model.prototypes = torch.Tensor(fs3).cuda()
+    align_model.to(device)
+    align_model.prototypes = torch.Tensor(fs3).to(device)
     
     target_embedding = GetTemplate(args.target, align_model.model).unsqueeze(0).float()
     align_model.text_feature = target_embedding
     unwanted_mask, sc_mask = align_model.disentangle_text(lb=0.6, ub=0.3)
 
     for i, latent in enumerate(list(subset_latents)):
-        latent = latent.unsqueeze(0).cuda()
+        latent = latent.unsqueeze(0).to(device)
         for attmpt in range(args.num_attempts):
             with torch.no_grad():
                 style_space, style_names, noise_constants = encoder(generator, latent)
@@ -98,21 +125,39 @@ if __name__=="__main__":
             img_gen = decoder(generator, codes, latent, noise_constants)
             
             img_name =  f"img{len(subset_latents) - i}-{args.method}-{args.target}-{attmpt}"
-            img_dir = f"results/{args.method}/"
-            if not os.path.exists(img_dir):
-                os.mkdir(img_dir)
+            img_dir = f"./results/{args.method}/{exp_name}"
 
-            imgs = torch.cat([img_orig, img_gen])
-            save_image(imgs, f"{img_dir}{img_name}.png", normalize=True, range=(-1, 1))
+            os.makedirs(img_dir, exist_ok=True)
 
+            imgs = torch.cat([img_orig, img_gen]) #shape : [2, 3, 1024, 1024]
+
+             
+            if not args.nsml:
+                save_image(imgs, f"{img_dir}{img_name}.png", normalize=True, range=(-1, 1))
+                # nsml 에서 내부 이미지 변화시켜야 함 
+
+            
             with torch.no_grad():
                 identity, cs, us, ip = align_model.evaluation(img_orig, img_gen)
-
-            wandb.log({
-                "Generated image": wandb.Image(imgs, caption=img_name),
-                "core semantic": np.round(cs, 3), 
-                "unwanted semantics": np.round(us, 3), 
-                "source positive": np.round(ip, 3),
-                "identity loss": identity,
-                "changed channels": num_c})
-    wandb.finish() 
+            
+            if args.wandb:
+                logs = {
+                    "Generated image": wandb.Image(imgs, caption=img_name),
+                    "core semantic": np.round(cs, 3), 
+                    "unwanted semantics": np.round(us, 3), 
+                    "source positive": np.round(ip, 3),
+                    "identity loss": identity,
+                    "changed channels": num_c}
+                wandb.log(**logs)
+            if args.nsml:
+                
+                logs = {
+                    "core semantic": float(np.round(cs, 3)[0]), 
+                    "unwanted semantics": float(np.round(us, 3)[0]), 
+                    "source positive": float(np.round(ip, 3)[0]),
+                    "identity loss": identity.item(),
+                    "changed channels": num_c}
+                nsml.report(**logs, scope=locals())
+                
+    if args.wandb:
+        wandb.finish() 

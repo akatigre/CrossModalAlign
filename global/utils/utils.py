@@ -254,20 +254,21 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
             ds_imp[idx] = tmp[idx]
     tmp = np.abs(ds_imp).max()
     ds_imp/=tmp
-    boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space)
+    boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.nsml)
     print('num of channels being manipulated:',num_c)
     return boundary_tmp2, num_c, dlatents
         
-def SplitS(ds_p, style_names, style_space):
+def SplitS(ds_p, style_names, style_space, nsml=False):
     """
     Split array of 6048(toRGB ignored) channels into corresponding channel size (into 9088)
     """
     all_ds=[]
     start=0
-    tmp="./npy/ffhq/"+'S'
+    dataset_path = "./npy/ffhq/" if not nsml else "./global/npy/ffhq/"
+    tmp=dataset_path+'S'
     with open(tmp, "rb") as fp:
         _, dlatents=pickle.load( fp)
-    tmp="./npy/ffhq/"+'S_mean_std'
+    tmp=dataset_path+'S_mean_std'
     with open(tmp, "rb") as fp:
         m, std=pickle.load( fp)
 
