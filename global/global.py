@@ -3,6 +3,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 import torch
+import wandb
 import tensorflow as tf
 import tarfile
 import argparse
@@ -54,7 +55,7 @@ if __name__=="__main__":
             n_mlp = 8,
             channel_multiplier = 2
         )
-
+    
     if args.nsml: 
         import nsml
         with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:
@@ -66,7 +67,7 @@ if __name__=="__main__":
         args.fs3_path = os.path.join("global","npy", "ffhq", "fs3.npy")
         args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
         args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
-        args.wandb = False
+        wandb.login(key="YOUR_KEY")
 
     generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
     generator.eval()
@@ -75,7 +76,7 @@ if __name__=="__main__":
     fs3 = np.load(args.fs3_path)
  
     test_latents = torch.load(args.latents_path, map_location='cpu')
-    subset_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:len(test_latents), :, :]).cpu()
+    subset_latents = torch.Tensor(test_latents[:args.num_test, :, :]).cpu()
 
     if args.method == "Baseline":
         exp_name = f"method{args.method}-chNum{args.topk}"
@@ -93,13 +94,12 @@ if __name__=="__main__":
         "target weights": args.trg_lambda,
     }
 
-    if args.nsml:
-        model = dict(imgs = None)
-        bind_nsml(model)
-        cnt = 0
+    # if args.nsml:
+    #     model = dict(imgs = None)
+    #     bind_nsml(model)
+    #     cnt = 0
 
     if args.wandb:
-        import wandb
         wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config=config)
     align_model = CrossModalAlign(512, args)
     align_model.to(device)
@@ -142,10 +142,10 @@ if __name__=="__main__":
 
             if not args.nsml:
                 save_image(imgs, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
-            else:
-                model["imgs"] = imgs.cpu()
-                nsml.save(f'{cnt}')
-                cnt += 1
+            # else:
+            #     model["imgs"] = imgs.cpu()
+            #     nsml.save(f'{cnt}')
+            #     cnt += 1
                 
             
             with torch.no_grad():
@@ -159,15 +159,15 @@ if __name__=="__main__":
                     "source positive": np.round(ip, 3),
                     "identity loss": identity,
                     "changed channels": num_c})
-            if args.nsml:
+            # if args.nsml:
                 
-                logs = {
-                    "core semantic": float(np.round(cs, 3)[0]), 
-                    "unwanted semantics": float(np.round(us, 3)[0]), 
-                    "source positive": float(np.round(ip, 3)[0]),
-                    "identity loss": identity.item(),
-                    "changed channels": num_c}
-                nsml.report(**logs, scope=locals())
+            #     logs = {
+            #         "core semantic": float(np.round(cs, 3)[0]), 
+            #         "unwanted semantics": float(np.round(us, 3)[0]), 
+            #         "source positive": float(np.round(ip, 3)[0]),
+            #         "identity loss": identity.item(),
+            #         "changed channels": num_c}
+            #     nsml.report(**logs, scope=locals())
                 
     if args.wandb:
         wandb.finish() 
