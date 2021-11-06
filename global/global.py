@@ -19,6 +19,15 @@ from models.stylegan2.models import Generator
 
 descriptions = ["asian", "grey hair", "red hair", "wears earrings", "smiling", "african", "terrorist"]
 
+
+def bind_nsml(model):
+    def save(dir_name, *args, **kwargs):
+        snapshot_pkl = os.path.join(dir_name, 'model.pkl')
+        torch.save(model, snapshot_pkl)
+        print("SAVED")
+
+    nsml.bind(save=save)
+
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
     parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
@@ -48,11 +57,6 @@ if __name__=="__main__":
 
     if args.nsml: 
         import nsml
-        # if os.path.exists(os.path.join('..', nsml.DATASET_PATH, 'train')):
-        #     print("exist 1")
-        #     print(os.listdir(os.path.join('..', nsml.DATASET_PATH, 'train')))
-        # print(os.listdir(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz')))
-    
         with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:
             f.extractall()
 
@@ -88,6 +92,11 @@ if __name__=="__main__":
         "num channels": args.topk,
         "target weights": args.trg_lambda,
     }
+
+    if args.nsml:
+        model = dict(imgs = None)
+        bind_nsml(model)
+        cnt = 0
 
     if args.wandb:
         import wandb
@@ -125,26 +134,31 @@ if __name__=="__main__":
             img_gen = decoder(generator, codes, latent, noise_constants)
             
             img_name =  f"img{len(subset_latents) - i}-{args.method}-{args.target}-{attmpt}"
-            img_dir = f"./results/{args.method}/{exp_name}"
-
+            img_dir = "results" if args.nsml else f"./results/{args.method}/{exp_name}"
+            
             os.makedirs(img_dir, exist_ok=True)
 
             imgs = torch.cat([img_orig, img_gen]) #shape : [2, 3, 1024, 1024]
 
-            save_image(imgs, f"{img_dir}{img_name}.png", normalize=True, range=(-1, 1))
+            if not args.nsml:
+                save_image(imgs, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
+            else:
+                model["imgs"] = imgs.cpu()
+                nsml.save(f'{cnt}')
+                cnt += 1
+                
             
             with torch.no_grad():
                 identity, cs, us, ip = align_model.evaluation(img_orig, img_gen)
             
             if args.wandb:
-                logs = {
+                wandb.log({
                     "Generated image": wandb.Image(imgs, caption=img_name),
                     "core semantic": np.round(cs, 3), 
                     "unwanted semantics": np.round(us, 3), 
                     "source positive": np.round(ip, 3),
                     "identity loss": identity,
-                    "changed channels": num_c}
-                wandb.log(**logs)
+                    "changed channels": num_c})
             if args.nsml:
                 
                 logs = {
