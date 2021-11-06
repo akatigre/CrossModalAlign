@@ -11,69 +11,15 @@ np.set_printoptions(suppress=True)
 
 from torchvision.utils import save_image
 from torchvision.transforms import ToPILImage
-
+import wandb
 from utils import *
 from utils.utils import *
 from model import CrossModalAlign
 from models.stylegan2.models import Generator
 
-descriptions = ["asian", "grey hair", "red hair", "wears earrings", "smiling", "african", "terrorist"]
 
+def run_global(args, target, fs3, generator, device):
 
-def bind_nsml(model):
-    def save(dir_name, *args, **kwargs):
-        snapshot_pkl = os.path.join(dir_name, 'model.pkl')
-        torch.save(model, snapshot_pkl)
-        print("SAVED")
-
-    nsml.bind(save=save)
-
-if __name__=="__main__":
-    parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
-    parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
-    parser.add_argument('--target', type=str, help="Target text to manipulate the source image")
-    parser.add_argument('--num_attempts', type=int, default=5, help="Number of iterations for diversity measurement")
-    parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify")
-    parser.add_argument('--beta', type=float, default=0., help="Threshold for style channel manipulation, topk used instead of beta")
-    parser.add_argument('--trg_lambda', type=float, default=2.0, help="weight for preserving the information of target")
-    parser.add_argument('--num_test', type=int, default=100, help="Number of latents to use for manipulation")
-    parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
-    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
-    parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
-    parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
-    parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
-    parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
-    parser.add_argument("--wandb", type=bool, default=True, help="Whether to activate the wandb")
-    parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
-    args = parser.parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
-    
-    generator = Generator(
-            size = 1024, # size of generated image
-            style_dim = 512,
-            n_mlp = 8,
-            channel_multiplier = 2
-        )
-
-    if args.nsml: 
-        import nsml
-        with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:
-            f.extractall()
-
-        print(os.listdir('./'))
-
-        args.stylegan_weights = os.path.join("pretrained_models", "stylegan2-ffhq-config-f.pt")
-        args.fs3_path = os.path.join("global","npy", "ffhq", "fs3.npy")
-        args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
-        args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
-        args.wandb = False
-
-    generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
-    generator.eval()
-    generator.to(device)
-
-    fs3 = np.load(args.fs3_path)
- 
     test_latents = torch.load(args.latents_path, map_location='cpu')
     subset_latents = torch.Tensor(test_latents[len(test_latents)-args.num_test:len(test_latents), :, :]).cpu()
 
@@ -81,31 +27,26 @@ if __name__=="__main__":
         exp_name = f"method{args.method}-chNum{args.topk}"
     elif args.method == "Random":
         fs3 = disentangle_fs3(fs3)
-        exp_name = f'method{args.method}-chNum{args.topk}-targetWeight{args.trg_lambda}'
+        exp_name = f'method{args.method}-chNum{args.topk}-target{target}-Weight{args.trg_lambda}'
     else:
         exp_name = None
         exit(-1)
 
     config = {
-        "target": args.target,
+        "target": target,
         "method": args.method,
         "num channels": args.topk,
         "target weights": args.trg_lambda,
+        "temperature": args.temperature
     }
 
-    if args.nsml:
-        model = dict(imgs = None)
-        bind_nsml(model)
-        cnt = 0
+    wandb.init(project="Global Direction", name=exp_name, group=args.method, config=config)
 
-    if args.wandb:
-        import wandb
-        wandb.init(project="GlobalDirection", name=exp_name, group=args.method, config=config)
     align_model = CrossModalAlign(512, args)
     align_model.to(device)
     align_model.prototypes = torch.Tensor(fs3).to(device)
     
-    target_embedding = GetTemplate(args.target, align_model.model).unsqueeze(0).float()
+    target_embedding = GetTemplate(target, align_model.model).unsqueeze(0).float()
     align_model.text_feature = target_embedding
     unwanted_mask, sc_mask = align_model.disentangle_text(lb=0.6, ub=0.3)
 
@@ -133,7 +74,7 @@ if __name__=="__main__":
             codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
             img_gen = decoder(generator, codes, latent, noise_constants)
             
-            img_name =  f"img{len(subset_latents) - i}-{args.method}-{args.target}-{attmpt}"
+            img_name =  f"img{len(subset_latents) - i}-{args.method}-{target}-{attmpt}"
             img_dir = "results" if args.nsml else f"./results/{args.method}/{exp_name}"
             
             os.makedirs(img_dir, exist_ok=True)
@@ -142,32 +83,73 @@ if __name__=="__main__":
 
             if not args.nsml:
                 save_image(imgs, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
-            else:
-                model["imgs"] = imgs.cpu()
-                nsml.save(f'{cnt}')
-                cnt += 1
-                
             
             with torch.no_grad():
                 identity, cs, us, ip = align_model.evaluation(img_orig, img_gen)
             
-            if args.wandb:
-                wandb.log({
-                    "Generated image": wandb.Image(imgs, caption=img_name),
-                    "core semantic": np.round(cs, 3), 
-                    "unwanted semantics": np.round(us, 3), 
-                    "source positive": np.round(ip, 3),
-                    "identity loss": identity,
-                    "changed channels": num_c})
-            if args.nsml:
-                
-                logs = {
-                    "core semantic": float(np.round(cs, 3)[0]), 
-                    "unwanted semantics": float(np.round(us, 3)[0]), 
-                    "source positive": float(np.round(ip, 3)[0]),
-                    "identity loss": identity.item(),
-                    "changed channels": num_c}
-                nsml.report(**logs, scope=locals())
-                
-    if args.wandb:
-        wandb.finish() 
+            
+            wandb.log({
+                "Generated image": wandb.Image(imgs, caption=img_name),
+                "core semantic": np.round(cs, 3), 
+                "unwanted semantics": np.round(us, 3), 
+                "source positive": np.round(ip, 3),
+                "identity loss": identity,
+                "changed channels": num_c})
+
+    wandb.finish() 
+
+if __name__=="__main__":
+    parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
+    parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
+    parser.add_argument('--targets', type=list)
+    parser.add_argument('--num_attempts', type=int, default=1, help="Number of iterations for diversity measurement")
+    parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify")
+    parser.add_argument('--beta', type=float, default=0., help="Threshold for style channel manipulation, topk used instead of beta")
+    parser.add_argument('--trg_lambda', type=float, default=2.0, help="weight for preserving the information of target")
+    parser.add_argument('--num_test', type=int, default=5, help="Number of latents to use for manipulation")
+    parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
+    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
+    parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
+    parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
+    parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
+    parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
+    parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
+    args = parser.parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+    wandb.login(key="5295808ee2ec2b1fef623a0b1838c5a5c55ae8d1")
+    generator = Generator(
+            size = 1024, # size of generated image
+            style_dim = 512,
+            n_mlp = 8,
+            channel_multiplier = 2
+        )
+
+    if args.nsml: 
+        import nsml
+        with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:
+            f.extractall()
+
+        print(os.listdir('./'))
+
+        args.stylegan_weights = os.path.join("pretrained_models", "stylegan2-ffhq-config-f.pt")
+        args.fs3_path = os.path.join("global","npy", "ffhq", "fs3.npy")
+        args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
+        args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
+
+    generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
+    generator.eval()
+    generator.to(device)
+
+    fs3 = np.load(args.fs3_path)
+    args.targets = ["Arched eyebrows", "Bushy eyebrows", "Male", "Female", "Chubby", "Smiling", "Lipstick", "Eyeglasses", \
+                    "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs", "Goatee", "Receding hairline", "Gray hair", "Brown hair",\
+                    "wearing necktie", "Double chin", "Hat", "Bags under eyes", "Big nose", "Big lips", "High cheekbones", "Young"]
+    for target in args.targets:
+        for num_c in [25, 50, 100, 200, 300]:
+            for lmbd in [1.0, 1.5, 2.0]:
+                for temperature in [1.0, 1.5, 2.0, 2.5]:
+                    args.num_c, args.trg_lambda, args.temperature = num_c, lmbd, temperature
+                    print(f"Target Text: {target} Number of channels {num_c} Target lambda {lmbd} Temperature {temperature}")
+                    run_global(args, target, fs3, generator, device)
+
+    
