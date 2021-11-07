@@ -177,8 +177,7 @@ if __name__=="__main__":
     fs3 = np.load(args.fs3_path)
     args.targets = ["Arched eyebrows", "Bushy eyebrows", "Male", "Female", "Chubby", "Smiling", "Lipstick", "Eyeglasses", \
                     "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs", "Goatee", "Receding hairline", "Grey hair", "Brown hair",\
-                    "Wavy hair", "Wear suit", "Double chin", "Hat", "Bags under eyes", "Big nose", "Big lips", "High cheekbones", "Young", "Old"]
-    args.targets = ["Male", "Grey hair", "Red hair", "Wearing lipstick"]
+                    "Wavy hair", "Wear suit", "Wear lipstick", "Double chin", "Hat", "Bags under eyes", "Big nose", "Big lips", "High cheekbones", "Young", "Old"]
     GLOBAL=["Male", "Female", "Young", "Old"]
 
     for target in args.targets:
