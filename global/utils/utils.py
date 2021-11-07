@@ -11,6 +11,22 @@ from sklearn.decomposition import PCA
 
 l2norm = partial(F.normalize, p=2, dim=1)
 
+class AverageMeter(object):
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
 def conv_warper(layer, input, style, noise):
     # the conv should change
     conv = layer.conv
@@ -239,24 +255,24 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     fs3: collection of predefined style directions for each channel (6048, 512)
     """
     tmp = np.dot(fs3, dt)
-    if args.beta != 0:
-        threshold = args.beta
-        ds_imp=copy.copy(tmp)
-        select = np.abs(tmp)<threshold
-        num_c = np.sum(~select)
-        ds_imp[select] = 0
-    else:
-        num_c = args.topk
-        _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
-        ds_imp = np.zeros_like(tmp)
-        for idx in idxs:
-            idx = idx.detach().cpu()
-            ds_imp[idx] = tmp[idx]
+    # if args.beta != 0:
+    #     threshold = args.beta
+    #     ds_imp=copy.copy(tmp)
+    #     select = np.abs(tmp)<threshold
+    #     num_c = np.sum(~select)
+    #     ds_imp[select] = 0
+    # else:
+    num_c = args.topk
+    _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
+    ds_imp = np.zeros_like(tmp)
+    for idx in idxs:
+        idx = idx.detach().cpu()
+        ds_imp[idx] = tmp[idx]
     tmp = np.abs(ds_imp).max()
     ds_imp/=tmp
     boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.nsml)
     print('num of channels being manipulated:',num_c)
-    return boundary_tmp2, num_c, dlatents
+    return boundary_tmp2, num_c, dlatents, idxs
         
 def SplitS(ds_p, style_names, style_space, nsml=False):
     """

@@ -32,7 +32,7 @@ class CrossModalAlign(CLIPLoss):
         print(f"Source Positive {self.image_cond.shape[0]}")
         return ip_mask
 
-    def disentangle_text(self, lb, ub):
+    def disentangle_diverse_text(self, lb, ub):
         probs = (self.text_feature @ self.prototypes.T).squeeze(0).detach().cpu()
         tp_mask = self.over_thres(probs, alpha=lb)
         sc_mask = self.over_thres(probs, alpha=ub)

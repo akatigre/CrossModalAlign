@@ -1,9 +1,9 @@
 from pathlib import Path
 
-available_gpus = (0, 1, 2, 3)
-processes_per_gpu = 1
+available_gpus = (0)
+processes_per_gpu = 4
 root_dir = '.'
-script_name = '20211029-global-baseline'
+script_name = 'align_model'
 
 
 def generate_command(exp, gpu):
@@ -15,14 +15,19 @@ settings = [
     {
         'command': 'global.py',
         'args': {
-            "method": "Baseline",
+            "method": "Random",
             "topk": num_c,
             "num_test": 100,
-            "target": text,
+            "trg_lambda": lmbd,
+            "tempmerature": temperature,
+            "targets": ["Arched eyebrows", "Bushy eyebrows", "Male", "Female", "Chubby", "Smiling", "Lipstick", "Eyeglasses", \
+                    "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs", "Goatee", "Receding hairline", "Gray hair", "Brown hair",\
+                    "wearing necktie", "Double chin", "Hat", "Bags under eyes", "Big nose", "Big lips", "High cheekbones", "Young"],
         }
     }
     for num_c in [30, 50, 70, 90, 110, 130, 150, 170, 190, 210]
-    for text in ["asian", "he wears lipstick", "pointy nose", "ginger hair", "grumpy man", "heavy makeup"]
+    for lmbd in [1.0, 1.5, 2.0]
+    for temperature in [1.0, 1.5, 2.0, 2.5]
 ]
 
 print(f'num settings: {len(settings)}')
@@ -32,8 +37,7 @@ experiments_per_gpu = [[] for _ in range(total_multirun_size)]
 for i, experiment in enumerate(settings):
     experiments_per_gpu[i % total_multirun_size].append(experiment)
 
-Path('./scripts').mkdir(parents=True, exist_ok=True)
-with open(f'./scripts/{script_name}.sh', 'w') as f:
+with open(f'./{script_name}.sh', 'w') as f:
     
     for i, experiment_list in enumerate(experiments_per_gpu):
         if len(experiment_list) > 0:
