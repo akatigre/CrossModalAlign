@@ -3,6 +3,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 import torch
+import wandb
 import tensorflow as tf
 import tarfile
 import argparse
@@ -155,6 +156,7 @@ if __name__=="__main__":
             channel_multiplier = 2
         )
     s_ch = ffhq_style_semantic(generator.channels)
+    print(s_ch)
     if args.nsml: 
         import nsml
         with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:

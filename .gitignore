@@ -23,7 +23,6 @@ global/npy/*
 pretrained_models/*
 
 # text file
-global/*.txt
 
 global/*/*.pt
 *.pth 
