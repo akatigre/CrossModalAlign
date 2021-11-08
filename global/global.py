@@ -1,4 +1,3 @@
-from genericpath import exists
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -10,13 +9,13 @@ import argparse
 import numpy as np
 np.set_printoptions(suppress=True)
 
-from torchvision.utils import save_image, make_grid
-from torchvision.transforms import ToPILImage
+from torchvision.utils import save_image
 import wandb
 from utils import *
 from utils.utils import *
 from model import CrossModalAlign
 from models.stylegan2.models import Generator
+from models.segment.model import BiSeNet
 
 
 def run_global(args, target, fs3, generator, device):
@@ -51,6 +50,15 @@ def run_global(args, target, fs3, generator, device):
     
     target_embedding = GetTemplate(target, align_model.model).unsqueeze(0).float()
     align_model.text_feature = target_embedding
+
+    import lpips
+    lpips_alex = lpips.LPIPS(net='alex')
+    lpips_alex = lpips_alex.to(device)
+
+    Segment_net = BiSeNet(n_classes=19).to(device)
+    ckpt = torch.load(args.segment_weights)
+    Segment_net.load_state_dict(ckpt)
+    Segment_net.eval()
 
     for i, latent in enumerate(list(subset_latents)):
         latent = latent.unsqueeze(0).to(device)
@@ -87,8 +95,34 @@ def run_global(args, target, fs3, generator, device):
             with torch.no_grad():
                 _id, _cs, _us, _ip = align_model.evaluation(img_orig, img_gen)
                 id_loss.update(_id); cs.update(_cs); us.update(_us); ip.update(_ip)
-        
-        # Save images
+
+        with torch.no_grad(): 
+        # First image at generated image is original 
+            segments = Text2Segment(target)
+            if args.num_attempts == 1 or len(segments) == 0: 
+                lpips_value = 0.0
+            else: 
+                # PreProcess with Segmentation network 
+                values, segmented_images = [], []
+                for idx in range(1, args.num_attempts):
+                    # shape of [3, 1024, 1024] into [512, 512, 3]
+                    img = generated_images[idx]
+                    img = maskImage(img, Segment_net, device, segments, stride=1)
+                    if img is None:
+                        continue
+                    segmented_images.append(img)
+
+                N = len(segmented_images)
+
+                for idx in range(1, N):
+                    tmp = lpips_alex(segmented_images[0], segmented_images[idx])
+                    values.append(tmp)
+                lpips_value = sum(values) / (1.0* len(values))
+
+                lpips_value = lpips_value[0][0][0][0].cpu()
+                print(lpips_value)
+
+
         img_name =  f"img{len(subset_latents) - i}-{args.method}-{target}"
         img_dir = "results" if args.nsml else f"./results/{args.method}/{img_name}"
         os.makedirs(img_dir, exist_ok=True)
@@ -101,7 +135,9 @@ def run_global(args, target, fs3, generator, device):
             f"{target}/unwanted semantics": np.round(us.avg, 3), 
             f"{target}/source positive": np.round(ip.avg, 3),
             f"{target}/identity loss": id_loss.avg,
-            f"{target}/channel idx": list(manip_channels)})
+            f"{target}/channel idx": list(manip_channels),
+            f"{target}/channel idx": lpips_value}
+            )
 
     wandb.finish() 
 
@@ -119,6 +155,7 @@ if __name__=="__main__":
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
     parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
+    parser.add_argument("--segment_weights", type=str, default="../pretrained_models/79999_iter.pth")
     parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
     parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
@@ -161,15 +198,13 @@ if __name__=="__main__":
                     "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs", "Goatee", "Receding hairline", "Grey hair", "Brown hair",\
                     "Wavy hair", "Wear suit", "Double chin", "Hat", "Bags under eyes", "Big nose", "Big lips", "High cheekbones", "Young", "Old"]
     
-    
-    
     for target in args.targets:
         channels = [25, 50, 100, 150, 200]
         for num_c in channels:
             if args.method=="Baseline":
                 run_global(args, target, fs3, generator, device)
             elif args.method=="Random":
-                for lmbd in [0.5, 1.0, 1.5, 2.0, 2.5]:
+                for lmbd in [0.5, 1.0, 1.5]:
                     for temperature in [1.0, 2.0, 3.0]:
                         args.topk, args.trg_lambda, args.temperature = num_c, lmbd, temperature
                         print(f"Target Text: {target} Number of channels {num_c} Target lambda {lmbd} Temperature {temperature}")
