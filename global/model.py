@@ -25,32 +25,34 @@ class CrossModalAlign(CLIPLoss):
         self.args = args
         self.idloss = IDLoss(args).cuda()
         
-    def extract_image_positive(self, unwanted_text):
+    def extract_image_positive(self):
         clip_sim = (self.image_feature @ self.prototypes.T).squeeze(0).detach().cpu()
         ip_mask = self.over_thres(clip_sim, alpha=1.0)
-        self.image_cond = torch.stack([self.prototypes[idx] for idx in ip_mask if idx not in unwanted_text])
+        self.image_cond = torch.stack([self.prototypes[idx] for idx in ip_mask if idx not in self.unwanted_mask])
         print(f"Source Positive {self.image_cond.shape[0]}")
+        self.unwanted_mask = [i for i in self.unwanted_mask if i not in ip_mask]
         return ip_mask
 
     def disentangle_diverse_text(self, lb, ub):
         probs = (self.text_feature @ self.prototypes.T).squeeze(0).detach().cpu()
         tp_mask = self.over_thres(probs, alpha=lb)
         sc_mask = self.over_thres(probs, alpha=ub)
-        unwanted_mask = [i for i in tp_mask if i not in sc_mask]
+        self.unwanted_mask = [i for i in tp_mask if i not in sc_mask]
         
-        if len(unwanted_mask)>0:
-            print(f"Target core: {len(sc_mask)} unwanted: {len(tp_mask)}")
+        if len(self.unwanted_mask)>0:
+            print(f"Target core: {sc_mask} {len(sc_mask)} unwanted: {tp_mask} {len(tp_mask)}")
             self.core_cond = torch.stack([self.prototypes[idx] for idx in sc_mask])
-            self.text_cond = torch.stack([self.prototypes[idx] for idx in unwanted_mask])
+            self.text_cond = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
             random_core = self.diverse_text()
-            w = torch.stack([probs[i] for i in unwanted_mask]).unsqueeze(0).cuda()
-            condition = l2norm(torch.mm(w, self.text_cond))
-            self.disentangled_text_feature = projection(basis=random_core, target=condition)
-            return unwanted_mask, sc_mask
+            # w = torch.stack([probs[i] for i in self.unwanted_mask]).unsqueeze(0).cuda()
+            gamma = torch.abs(1/(self.image_feature @ self.text_feature.T).mean())
+            print(gamma)
+            self.disentangled_text_feature = gamma * random_core - projection(basis=self.text_cond, target=random_core, multiple=True)
+            return self.unwanted_mask, sc_mask
         else:
-            lb += 1.0
+            lb += 0.05
             print("Nothing between the thresholds -> Decrease the lower bound")
-            return self.disentangle_text(lb=lb, ub=ub)
+            return self.disentangle_diverse_text(lb=lb, ub=ub)
             
 
     def diverse_text(self):
@@ -95,8 +97,8 @@ class CrossModalAlign(CLIPLoss):
     def postprocess(self):
         weights = self.compute_edge_logits(self.image_feature.unsqueeze(0)[0], self.image_cond)
         image_manifold = l2norm(torch.mm(weights, self.image_cond))
-        gamma = 1/(self.image_feature @ self.text_feature.T)[0]
-        text_star = l2norm(self.args.trg_lambda * torch.abs(gamma) * self.disentangled_text_feature + image_manifold)
+        # gamma = 1/(self.image_feature @ self.text_feature.T)[0]
+        text_star = l2norm(self.args.trg_lambda * self.disentangled_text_feature + image_manifold)
         return text_star
 
     def erdos_renyi(self, center, attrs, temp):

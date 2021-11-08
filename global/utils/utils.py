@@ -128,15 +128,43 @@ def projection(basis, target, multiple=False):
     X = target.detach().cpu()
     
     if multiple:
-        inv = torch.matmul(B, B.T)
-        X = torch.matmul(B, X.T)
-        P, _ = torch.solve(inv, X)
-        proj = torch.matmul(P.T, B)
-        return l2norm(proj).cuda()
+        inv = torch.linalg.inv(torch.matmul(B, B.T))
+        P = torch.matmul(B.T, torch.matmul(inv, B))
+        return l2norm(torch.matmul(X, P)).cuda()
     else:
         B = B.squeeze(0)
         X = X.squeeze(0)
         return l2norm((X.dot(B.T)/B.dot(B) * B).unsqueeze(0)).cuda()
+
+def ffhq_style_semantic(channels):
+    configs_ffhq = {
+    'black hair' :      [(12, 479)],
+    'blond hair':      [(12, 479), (12, 266)],
+    'grey hair' :      [(11, 286)],
+    'wavy hair'  :      [(6, 500), (8, 128), (5, 92), (6, 394), (6, 323)],
+    'bangs'      :      [(3, 259), (6, 285), (5, 414), (6, 128), (9, 295), (6, 322), (6, 487), (6, 504)],
+    'receding hairline':[(5, 414), (6, 322), (6, 497), (6, 504)],
+    'smiling'    :      [(6, 501)],
+    'lipstick'   :      [(15, 45)],
+    'sideburns'  :      [(12, 237)],
+    'goatee'     :      [(9, 421)],
+    'earrings'   :      [(8, 81)],
+    'glasses'    :      [(3, 288), (2, 175), (3, 120), (2, 97)],
+    'wear suit'  :      [(9, 441), (8, 292), (11, 358), (6, 223)],
+    'gender'     :      [(9, 6)]
+    }
+    style_channels = []
+    for res, num_channels in channels.items():
+        if res==4:
+            style_channels.append(num_channels)
+        else:
+            style_channels.extend([num_channels]*2)
+    
+    mapped = {}
+    for k, v in configs_ffhq.items():
+        new_v = [sum(style_channels[:layer]) + ch for layer, ch in v]
+        mapped[k] = new_v
+    return mapped
 
 imagenet_templates = [
     'a bad photo of a {}.',
@@ -255,13 +283,7 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     fs3: collection of predefined style directions for each channel (6048, 512)
     """
     tmp = np.dot(fs3, dt)
-    # if args.beta != 0:
-    #     threshold = args.beta
-    #     ds_imp=copy.copy(tmp)
-    #     select = np.abs(tmp)<threshold
-    #     num_c = np.sum(~select)
-    #     ds_imp[select] = 0
-    # else:
+   
     num_c = args.topk
     _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
     ds_imp = np.zeros_like(tmp)
@@ -272,7 +294,7 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     ds_imp/=tmp
     boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.nsml)
     print('num of channels being manipulated:',num_c)
-    return boundary_tmp2, num_c, dlatents, idxs
+    return boundary_tmp2, num_c, dlatents, idxs[:5]
         
 def SplitS(ds_p, style_names, style_space, nsml=False):
     """

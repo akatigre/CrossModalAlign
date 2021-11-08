@@ -42,7 +42,7 @@ if __name__ == "__main__":
         method = tmp[2]
         exp_name = f'diversity-{method}-{tmp[3]}'
 
-        wandb.init(project="GlobalDirection", name=exp_name, group=method)
+        wandb.init(project="Global Direction Diversity Checking", name=exp_name, group=method)
     
     
     assert os.path.exists(args.dir)
@@ -68,22 +68,23 @@ if __name__ == "__main__":
     with torch.no_grad():
         for name in pbar:
             images = []
-            try:
-                for idx in range(3):
-                    img = Image.open(f"{name}-{idx}.png", 'r')
+            try:  
+                # Image size: 1+num_attempts, 3, 1024, 1024
+            
+                img = Image.open(f"{name}.png", 'r')
 
-                    img_src = toTorch(crop(img, top=2, left=2 , height=size, width = size)).to(device)
-                    img_src = img_src.unsqueeze(0)
-                    img_tgt = toTorch(crop(img, top=2, left=size+4 , height=size, width =size)).to(device)
-                    img_tgt = img_tgt.unsqueeze(0)
-                    id_loss = criteria(img_src, img_tgt)[0]
+                img_src = toTorch(crop(img, top=2, left=2 , height=size, width = size)).to(device)
+                img_src = img_src.unsqueeze(0)
+                img_tgt = toTorch(crop(img, top=2, left=size+4 , height=size, width =size)).to(device)
+                img_tgt = img_tgt.unsqueeze(0)
+                id_loss = criteria(img_src, img_tgt)[0]
 
-                    if args.conditioned and id_loss > 0.35:
-                        continue
+                if args.conditioned and id_loss > 0.35:
+                    continue
 
-                    img = toTorch(crop(img, top=2, left=size+4, height=size, width = size)).to(device)
-                    images.append(img)
-      
+                img = toTorch(crop(img, top=2, left=size+4, height=size, width = size)).to(device)
+                images.append(img)
+    
             except OSError:
                 continue
 
