@@ -2,7 +2,7 @@
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
-
+import random
 import glob
 import torch
 import wandb
@@ -29,26 +29,36 @@ def pairwise_lpips(model, imgs):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", type=str, help="directory of the input image")
+    parser.add_argument("--latents_path", type=str, default="./pretrained_models/test_faces.pt")
     parser.add_argument("--gpu", type=int, default=0, help="use specific gpu")
+    parser.add_argument("--textA", type=str, default="The man")
+    parser.add_argument("--textB", type=str, default="Has no beard")
     parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
+    parser.add_argument("--ir_se50_weights", type=str, default="./pretrained_models/model_ir_se50.pth")
     parser.add_argument("--conditioned", type=bool, default=True)
 
     args = parser.parse_args()
 
     if args.wandb:
+<<<<<<< HEAD
+        subset_indices = random.sample(100, 2824)
+        test_latents = torch.load(args.latents_path, map_location='cpu')[subset_indices, :, :]
+        base_text = " ".join([args.textA, args.textB.lower()])
+        exp_name = f'sequential-{args.textA}-{args.textB}'
+        wandb.init(project="Global Direction Sequential Manipulation", name=exp_name)
+=======
         tmp = args.dir.split('/')
         method = tmp[2]
         exp_name = f'diversity-{method}-{tmp[3]}'
 
-        wandb.init(project="GlobalDirection", name=exp_name, group=method)
+        wandb.init(project="Global Direction Diversity Checking", name=exp_name, group=method)
     
     
     assert os.path.exists(args.dir)
     name_list = glob.glob(os.path.join(args.dir, "*.png"))
     name_list = [f[:-6] for f in name_list]
     name_list = list(set(name_list))
+>>>>>>> 40b0969fef6870530118901023afd50bed61fe30
 
     device = f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
 
@@ -68,22 +78,23 @@ if __name__ == "__main__":
     with torch.no_grad():
         for name in pbar:
             images = []
-            try:
-                for idx in range(3):
-                    img = Image.open(f"{name}-{idx}.png", 'r')
+            try:  
+                # Image size: 1+num_attempts, 3, 1024, 1024
+            
+                img = Image.open(f"{name}.png", 'r')
 
-                    img_src = toTorch(crop(img, top=2, left=2 , height=size, width = size)).to(device)
-                    img_src = img_src.unsqueeze(0)
-                    img_tgt = toTorch(crop(img, top=2, left=size+4 , height=size, width =size)).to(device)
-                    img_tgt = img_tgt.unsqueeze(0)
-                    id_loss = criteria(img_src, img_tgt)[0]
+                img_src = toTorch(crop(img, top=2, left=2 , height=size, width = size)).to(device)
+                img_src = img_src.unsqueeze(0)
+                img_tgt = toTorch(crop(img, top=2, left=size+4 , height=size, width =size)).to(device)
+                img_tgt = img_tgt.unsqueeze(0)
+                id_loss = criteria(img_src, img_tgt)[0]
 
-                    if args.conditioned and id_loss > 0.35:
-                        continue
+                if args.conditioned and id_loss > 0.35:
+                    continue
 
-                    img = toTorch(crop(img, top=2, left=size+4, height=size, width = size)).to(device)
-                    images.append(img)
-      
+                img = toTorch(crop(img, top=2, left=size+4, height=size, width = size)).to(device)
+                images.append(img)
+    
             except OSError:
                 continue
 

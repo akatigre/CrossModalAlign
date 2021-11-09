@@ -10,7 +10,7 @@ from functools import partial
 import scipy.stats as stats
 from criteria.clip_loss import CLIPLoss
 from criteria.id_loss import IDLoss
-from utils.utils import projection
+from utils.utils import projection, logitexp
 
 l2norm = partial(F.normalize, p=2, dim=1)
 
@@ -25,39 +25,64 @@ class CrossModalAlign(CLIPLoss):
         self.args = args
         self.idloss = IDLoss(args).cuda()
         
-    def extract_image_positive(self, unwanted_text):
+    def extract_image_positive(self):
         clip_sim = (self.image_feature @ self.prototypes.T).squeeze(0).detach().cpu()
         ip_mask = self.over_thres(clip_sim, alpha=1.0)
-        self.image_cond = torch.stack([self.prototypes[idx] for idx in ip_mask if idx not in unwanted_text])
+        self.image_cond = torch.stack([self.prototypes[idx] for idx in ip_mask if idx not in self.unwanted_mask])
         print(f"Source Positive {self.image_cond.shape[0]}")
+        self.unwanted_mask = [i for i in self.unwanted_mask if i not in ip_mask]
+<<<<<<< HEAD
+=======
         return ip_mask
+>>>>>>> 40b0969fef6870530118901023afd50bed61fe30
 
-    def disentangle_diverse_text(self, lb, ub):
+
+    def disentangle_diverse_text(self):
         probs = (self.text_feature @ self.prototypes.T).squeeze(0).detach().cpu()
+<<<<<<< HEAD
+        tp_mask = self.over_thres(probs, alpha=self.args.lb)
+        sc_mask = self.over_thres(probs, alpha=self.args.ub)
+=======
         tp_mask = self.over_thres(probs, alpha=lb)
         sc_mask = self.over_thres(probs, alpha=ub)
-        unwanted_mask = [i for i in tp_mask if i not in sc_mask]
+>>>>>>> 40b0969fef6870530118901023afd50bed61fe30
+        self.unwanted_mask = [i for i in tp_mask if i not in sc_mask]
         
-        if len(unwanted_mask)>0:
-            print(f"Target core: {len(sc_mask)} unwanted: {len(tp_mask)}")
+        if len(self.unwanted_mask)>0:
+            print(f"Target core: {sc_mask} {len(sc_mask)} unwanted: {tp_mask} {len(tp_mask)}")
             self.core_cond = torch.stack([self.prototypes[idx] for idx in sc_mask])
-            self.text_cond = torch.stack([self.prototypes[idx] for idx in unwanted_mask])
+            self.text_cond = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
             random_core = self.diverse_text()
-            w = torch.stack([probs[i] for i in unwanted_mask]).unsqueeze(0).cuda()
-            condition = l2norm(torch.mm(w, self.text_cond))
-            self.disentangled_text_feature = projection(basis=random_core, target=condition)
-            return unwanted_mask, sc_mask
+            # w = torch.stack([probs[i] for i in self.unwanted_mask]).unsqueeze(0).cuda()
+<<<<<<< HEAD
+            self.disentangled_text_feature = random_core - projection(basis=self.text_cond, target=random_core, multiple=True)
+            
         else:
-            lb += 1.0
+            self.args.lb += 0.05
             print("Nothing between the thresholds -> Decrease the lower bound")
-            return self.disentangle_text(lb=lb, ub=ub)
+            return self.disentangle_diverse_text()
+=======
+            gamma = torch.abs(1/(self.image_feature @ self.text_feature.T).mean())
+            print(gamma)
+            self.disentangled_text_feature = gamma * random_core - projection(basis=self.text_cond, target=random_core, multiple=True)
+            return self.unwanted_mask, sc_mask
+        else:
+            lb += 0.05
+            print("Nothing between the thresholds -> Decrease the lower bound")
+            return self.disentangle_diverse_text(lb=lb, ub=ub)
+>>>>>>> 40b0969fef6870530118901023afd50bed61fe30
             
 
     def diverse_text(self):
         N = self.core_cond.shape[0]
         temp = torch.Tensor([self.args.temperature]*N).cuda()
-        weight = self.erdos_renyi(self.text_feature.unsqueeze(0), self.core_cond, temp)
-        return torch.matmul(weight, self.core_cond)
+        distances = (self.text_feature ** 2).sum(dim=1, keepdim=True) + (self.core_cond ** 2).sum(dim=1) - 2 * self.text_feature @ self.core_cond.T
+        distances = - 0.5 * distances / self.edge_scaling.exp()
+        random_edges = logitexp(distances.view(len(self.text_feature), len(self.core_cond)))
+        random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=random_edges, temperature=temp)
+        sampled_weight = random_edges.rsample()
+        print(sampled_weight)
+        return torch.matmul(sampled_weight, self.core_cond)
 
     def over_thres(self, probs, alpha=1.0):
         sigma = probs.std()
@@ -93,33 +118,18 @@ class CrossModalAlign(CLIPLoss):
         return identity, cs.detach().cpu().numpy(), us.detach().cpu().numpy(), ip.detach().cpu().numpy()
 
     def postprocess(self):
-        weights = self.compute_edge_logits(self.image_feature.unsqueeze(0)[0], self.image_cond)
+        # weights = self.compute_edge_logits(self.image_feature, self.image_cond)
+        weights = self.image_feature @ self.image_cond.T
         image_manifold = l2norm(torch.mm(weights, self.image_cond))
-        gamma = 1/(self.image_feature @ self.text_feature.T)[0]
-        text_star = l2norm(self.args.trg_lambda * torch.abs(gamma) * self.disentangled_text_feature + image_manifold)
+<<<<<<< HEAD
+        gamma = self.args.trg_lambda/(self.image_feature@self.text_feature.T).mean()
+        text_star = l2norm(gamma * self.disentangled_text_feature + image_manifold)
+=======
+        # gamma = 1/(self.image_feature @ self.text_feature.T)[0]
+        text_star = l2norm(self.args.trg_lambda * self.disentangled_text_feature + image_manifold)
+>>>>>>> 40b0969fef6870530118901023afd50bed61fe30
         return text_star
-
-    def erdos_renyi(self, center, attrs, temp):
-        random_edges = self.compute_edge_logits(center[0], attrs)
-        random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=random_edges, temperature=temp)
-        sampled_edges = random_edges.rsample()
-        return sampled_edges
-
-    
-    def compute_edge_logits(self, center, attrs):
-        def logitexp(logp):
-            # Convert outputs of logsigmoid to logits (see https://github.com/pytorch/pytorch/issues/4007)
-            pos = torch.clamp(logp, min=-0.69314718056)
-            neg = torch.clamp(logp, max=-0.69314718056)
-            neg_val = neg - torch.log(1 - torch.exp(neg))
-            pos_val = -torch.log(torch.clamp(torch.expm1(-pos), min=1e-20))
-            return pos_val + neg_val
-        distances = (center ** 2).sum(dim=1, keepdim=True) + (attrs ** 2).sum(dim=1) - 2 * center @ attrs.T
-        distances = - 0.5 * distances / self.edge_scaling.exp()
-        logits = logitexp(distances.view(len(center), len(attrs)))
-        return logits
-
-    
+        
     def plot_hist(self, x, title: str):
         from matplotlib import pyplot as plt
         plt.hist(x, bins=100, density=True, stacked=True, alpha=0.2)
