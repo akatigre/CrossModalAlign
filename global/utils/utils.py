@@ -7,11 +7,7 @@ import numpy as np
 from functools import partial
 from torch.nn import functional as F
 from sklearn.decomposition import PCA
-
-from PIL import Image
-
 import torchvision.transforms as transforms
-from torchvision.utils import save_image
 
 
 l2norm = partial(F.normalize, p=2, dim=1)
@@ -253,8 +249,6 @@ imagenet_templates = [
     'a tattoo of the {}.',
 ]
 
-
-
 def GetTemplate(target, model):
     """
     model: CLIP 
@@ -273,6 +267,13 @@ def uniform_loss(x, t=2):
     x = torch.Tensor(x).cuda()
     return torch.pdist(x, p=2).pow(2).mul(-t).exp().mean().log()
 
+def logitexp(self, logp):
+    # Convert outputs of logsigmoid to logits (see https://github.com/pytorch/pytorch/issues/4007)
+    pos = torch.clamp(logp, min=-0.69314718056)
+    neg = torch.clamp(logp, max=-0.69314718056)
+    neg_val = neg - torch.log(1 - torch.exp(neg))
+    pos_val = -torch.log(torch.clamp(torch.expm1(-pos), min=1e-20))
+    return pos_val + neg_val
 
 def disentangle_fs3(fs3):
     pca = PCA(n_components=5)
