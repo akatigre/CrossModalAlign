@@ -81,16 +81,20 @@ class CrossModalAlign(CLIPLoss):
         cs = (af - bf).mean(dim=1)
 
         # Unwanted semantic (exclude anchors from image positive)
-        conditions = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
-        bf = self.image_feature @ conditions.T
-        af = new_image_feature @ conditions.T
-        us = (af - bf).mean(dim=1)
+        if len(self.unwanted_mask) == 0: 
+            us = 0.0
+        else: 
+            conditions = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
+            bf = self.image_feature @ conditions.T
+            af = new_image_feature @ conditions.T
+            us = (af - bf).mean(dim=1)
+            us = us.detach().cpu().numpy()
         
         # Image Positive
         bf = self.image_feature @ self.image_cond.T
         af = new_image_feature @ self.image_cond.T
         ip = (af - bf).mean(dim=1)
-        return identity, cs.detach().cpu().numpy(), us.detach().cpu().numpy(), ip.detach().cpu().numpy()
+        return identity, cs.detach().cpu().numpy(), us, ip.detach().cpu().numpy()
 
     def postprocess(self):
         weights = self.image_feature @ self.image_cond.T
