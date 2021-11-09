@@ -43,7 +43,6 @@ class CrossModalAlign(CLIPLoss):
             self.core_cond = torch.stack([self.prototypes[idx] for idx in sc_mask])
             self.text_cond = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
             random_core = self.diverse_text()
-            # w = torch.stack([probs[i] for i in self.unwanted_mask]).unsqueeze(0).cuda()
             self.disentangled_text_feature = random_core - projection(basis=self.text_cond, target=random_core, multiple=True)
         else:
             lb += 0.05
@@ -94,7 +93,7 @@ class CrossModalAlign(CLIPLoss):
         return identity, cs.detach().cpu().numpy(), us.detach().cpu().numpy(), ip.detach().cpu().numpy()
 
     def postprocess(self):
-        weights = self.compute_edge_logits(self.image_feature.unsqueeze(0)[0], self.image_cond)
+        weights = self.image_feature @ self.image_cond.T
         image_manifold = l2norm(torch.mm(weights, self.image_cond))
         gamma = self.args.trg_lambda/(self.image_feature @ self.text_feature.T).mean()
         text_star = l2norm(gamma * self.disentangled_text_feature + image_manifold)

@@ -2,6 +2,7 @@ import pickle
 import numpy as np
 import clip
 import torch
+import copy 
 import cv2
 import numpy as np
 from functools import partial
@@ -129,7 +130,7 @@ def projection(basis, target, multiple=False):
     X = target.detach().cpu()
     
     if multiple:
-        inv = torch.linalg.inv(torch.matmul(B, B.T))
+        inv = linalg.inv(torch.matmul(B, B.T))
         P = torch.matmul(B.T, torch.matmul(inv, B))
         return l2norm(torch.matmul(X, P)).cuda()
     else:
@@ -267,7 +268,7 @@ def uniform_loss(x, t=2):
     x = torch.Tensor(x).cuda()
     return torch.pdist(x, p=2).pow(2).mul(-t).exp().mean().log()
 
-def logitexp(self, logp):
+def logitexp(logp):
     # Convert outputs of logsigmoid to logits (see https://github.com/pytorch/pytorch/issues/4007)
     pos = torch.clamp(logp, min=-0.69314718056)
     neg = torch.clamp(logp, max=-0.69314718056)
@@ -289,7 +290,18 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     fs3: collection of predefined style directions for each channel (6048, 512)
     """
     tmp = np.dot(fs3, dt)
-   
+    if args.topk == 0: 
+        ds_imp = copy.copy(tmp)
+        select = np.abs(tmp)< args.beta
+        num_c = np.sum(~select)
+        ds_imp[select] = 0
+        tmp = np.abs(ds_imp).max()
+        ds_imp /=tmp
+
+        boundary_tmp2, dlatents = SplitS(ds_imp, style_names, style_space, args.nsml)
+        print('num of channels being manipulated:',num_c)
+        return boundary_tmp2, num_c, dlatents, []
+
     num_c = args.topk
     _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
     ds_imp = np.zeros_like(tmp)
