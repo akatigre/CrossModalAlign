@@ -130,13 +130,14 @@ def projection(basis, target, multiple=False):
     X = target.detach().cpu()
     
     if multiple:
-        inv = linalg.inv(torch.matmul(B, B.T))
-        P = torch.matmul(B.T, torch.matmul(inv, B))
+        inv_B = torch.solve(B, torch.matmul(B, B.T)).solution
+        P = torch.matmul(B.T, inv_B)
         return l2norm(torch.matmul(X, P)).cuda()
     else:
         B = B.squeeze(0)
         X = X.squeeze(0)
         return l2norm((X.dot(B.T)/B.dot(B) * B).unsqueeze(0)).cuda()
+
 
 def ffhq_style_semantic(channels):
     configs_ffhq = {
