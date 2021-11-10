@@ -2,7 +2,7 @@
 
 - Prepare
   
-  1. Download fs3.npy, styleGAN2 pretrained model, ArcFace pretrained model and test faces from      https://drive.google.com/drive/folders/1LXGi5WF2uxRs0gRICDSkhhfYynTs2haL?usp=sharing
+  1. Download fs3.npy, styleGAN2 pretrained model, ArcFace pretrained model, Face segmentation pretrained model and test faces from      https://drive.google.com/drive/folders/1LXGi5WF2uxRs0gRICDSkhhfYynTs2haL?usp=sharing
   2. Create Docker Contrainer
       > cd global 
       > 
@@ -10,7 +10,7 @@
     
   * fs3.npy: global/npy/ffhq/ 아래에 위치함
 
-  * StyleGAN2 & ArcFace: ./pretrained_models/ 아래에 위치함
+  * StyleGAN2 & ArcFace : ./pretrained_models/ 아래에 위치함
   * test_faces.pt: Optimization & Global에서 사용 -> 파일 위치 올바르게 바꾸기
 
 - 실험: StyleCLIP baseline 

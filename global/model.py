@@ -30,7 +30,11 @@ class CrossModalAlign(CLIPLoss):
         ip_mask = self.over_thres(clip_sim, alpha=1.0)
         self.image_cond = torch.stack([self.prototypes[idx] for idx in ip_mask if idx not in self.unwanted_mask])
         print(f"Source Positive {self.image_cond.shape[0]}")
+<<<<<<< HEAD
         self.unwanted_mask = [i for i in self.unwanted_mask if i not in ip_mask] # exclude image positives for evaluation
+=======
+        self.unwanted_mask = [i for i in self.unwanted_mask if i not in ip_mask]
+>>>>>>> 512dd516caf2fb3fac439e002865af7fff098132
 
     def disentangle_diverse_text(self):
         probs = (self.text_feature @ self.prototypes.T).squeeze(0).detach().cpu()
@@ -42,13 +46,22 @@ class CrossModalAlign(CLIPLoss):
             print(f"Target core: {len(sc_mask)}-{sc_mask}")
             print(f"Target unwanted: {len(self.unwanted_mask)}-{self.unwanted_mask}")
             self.core_cond = torch.stack([self.prototypes[idx] for idx in sc_mask])
+<<<<<<< HEAD
             self.text_cond = l2norm(torch.stack([probs[idx]*self.prototypes[idx] for idx in self.unwanted_mask]))
             random_core = l2norm(self.diverse_text())
+=======
+            self.text_cond = torch.stack([self.prototypes[idx] for idx in self.unwanted_mask])
+            random_core = self.diverse_text()
+>>>>>>> 512dd516caf2fb3fac439e002865af7fff098132
             self.disentangled_text_feature = random_core - projection(basis=self.text_cond, target=random_core, multiple=True)
         else:
             self.args.lb += 0.05
             print("Nothing between the thresholds -> Decrease the lower bound")
+<<<<<<< HEAD
             self.disentangle_diverse_text()
+=======
+            self.disentangle_diverse_text(lb=lb, ub=ub)
+>>>>>>> 512dd516caf2fb3fac439e002865af7fff098132
 
     def diverse_text(self):
         N = self.core_cond.shape[0]
@@ -58,7 +71,10 @@ class CrossModalAlign(CLIPLoss):
         edges = logitexp(distances.view(len(self.text_feature), len(self.core_cond)))
         random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=edges, temperature=temp)
         sampled_edges = random_edges.rsample()
+<<<<<<< HEAD
         print(f"Random Core Weights: {sampled_edges}")
+=======
+>>>>>>> 512dd516caf2fb3fac439e002865af7fff098132
         return torch.matmul(sampled_edges, self.core_cond)
 
     def over_thres(self, probs, alpha):
@@ -101,10 +117,16 @@ class CrossModalAlign(CLIPLoss):
         return identity, cs.detach().cpu().numpy(), us, ip.detach().cpu().numpy()
 
     def postprocess(self):
+<<<<<<< HEAD
         weights = self.image_feature @ self.image_cond.T # Image positives weighted by image feature
         image_manifold = l2norm(torch.mm(weights, self.image_cond))
         gamma = torch.abs(self.args.trg_lambda/(self.image_feature @ self.text_feature.T))
         print(f"Weight of Target: {gamma.item()}")
+=======
+        weights = self.image_feature @ self.image_cond.T
+        image_manifold = l2norm(torch.mm(weights, self.image_cond))
+        gamma = self.args.trg_lambda/(self.image_feature @ self.text_feature.T).mean()
+>>>>>>> 512dd516caf2fb3fac439e002865af7fff098132
         text_star = l2norm(gamma * self.disentangled_text_feature + image_manifold)
         return text_star
 
