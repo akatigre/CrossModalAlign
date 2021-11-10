@@ -2,16 +2,13 @@ import pickle
 import numpy as np
 import clip
 import torch
+import copy 
 import cv2
 import numpy as np
 from functools import partial
 from torch.nn import functional as F
 from sklearn.decomposition import PCA
-
-from PIL import Image
-
 import torchvision.transforms as transforms
-from torchvision.utils import save_image
 
 
 l2norm = partial(F.normalize, p=2, dim=1)
@@ -133,13 +130,14 @@ def projection(basis, target, multiple=False):
     X = target.detach().cpu()
     
     if multiple:
-        inv = torch.linalg.inv(torch.matmul(B, B.T))
-        P = torch.matmul(B.T, torch.matmul(inv, B))
+        inv_B = torch.solve(B, torch.matmul(B, B.T)).solution
+        P = torch.matmul(B.T, inv_B)
         return l2norm(torch.matmul(X, P)).cuda()
     else:
         B = B.squeeze(0)
         X = X.squeeze(0)
         return l2norm((X.dot(B.T)/B.dot(B) * B).unsqueeze(0)).cuda()
+
 
 def ffhq_style_semantic(channels):
     configs_ffhq = {
@@ -253,8 +251,6 @@ imagenet_templates = [
     'a tattoo of the {}.',
 ]
 
-
-
 def GetTemplate(target, model):
     """
     model: CLIP 
@@ -273,6 +269,13 @@ def uniform_loss(x, t=2):
     x = torch.Tensor(x).cuda()
     return torch.pdist(x, p=2).pow(2).mul(-t).exp().mean().log()
 
+def logitexp(logp):
+    # Convert outputs of logsigmoid to logits (see https://github.com/pytorch/pytorch/issues/4007)
+    pos = torch.clamp(logp, min=-0.69314718056)
+    neg = torch.clamp(logp, max=-0.69314718056)
+    neg_val = neg - torch.log(1 - torch.exp(neg))
+    pos_val = -torch.log(torch.clamp(torch.expm1(-pos), min=1e-20))
+    return pos_val + neg_val
 
 def disentangle_fs3(fs3):
     pca = PCA(n_components=5)
@@ -288,7 +291,18 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     fs3: collection of predefined style directions for each channel (6048, 512)
     """
     tmp = np.dot(fs3, dt)
-   
+    if args.topk == 0: 
+        ds_imp = copy.copy(tmp)
+        select = np.abs(tmp)< args.beta
+        num_c = np.sum(~select)
+        ds_imp[select] = 0
+        tmp = np.abs(ds_imp).max()
+        ds_imp /=tmp
+
+        boundary_tmp2, dlatents = SplitS(ds_imp, style_names, style_space, args.nsml)
+        print('num of channels being manipulated:',num_c)
+        return boundary_tmp2, num_c, dlatents, []
+
     num_c = args.topk
     _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
     ds_imp = np.zeros_like(tmp)
