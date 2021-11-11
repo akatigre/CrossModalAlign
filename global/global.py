@@ -2,8 +2,6 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 import torch
-import wandb
-import tensorflow as tf
 import tarfile
 import argparse
 import numpy as np
@@ -11,24 +9,26 @@ np.set_printoptions(suppress=True)
 
 from torchvision.utils import save_image
 import wandb
-from utils import *
+
 from utils.utils import *
+from utils.stylegan_models import encoder, decoder
+from utils.global_dir_utils import GetTemplate, GetBoundary, MSCode
+from utils.eval_utils import Text2Segment, maskImage
 from model import CrossModalAlign
 from models.stylegan2.models import Generator
 from models.segment.model import BiSeNet
 
 
-def run_global(args, target, fs3, generator, device):
+def run_global(args, target, s_dict, generator, device):
 
     test_latents = torch.load(args.latents_path, map_location='cpu')
-    test_indices = [1852, 2412, 226, 1070, 1603]#, 1276, 416, 1086, 200, 1033, 33, 598, 2726, 1977, 1945, 472, 629, 2144, 141, 1097, 1474, 149, 2050, 810, 831, 1385, 881, 1194, 2786, 2524, 2091, 2224, 113, 699, 1877, 1215, 382, 191, 1265, 611, 1685, 1034, 821, 1422, 1054, 2436, 1206, 1293, 2659, 973, 1198, 2242, 971, 1656, 2769, 1968, 2137, 2694, 352, 1701, 2561, 1657, 1229, 2666, 1416, 2250, 2635, 1976, 2585, 220, 1470, 1866, 2749, 2502, 1465, 714, 1687, 800, 421, 1185, 1868, 1808, 2227, 2145, 732, 2431, 2350, 323, 2706, 2239, 225, 1189, 1839, 2557, 650, 761, 892, 1430, 852, 1678]
-    subset_latents = torch.Tensor(test_latents[test_indices, :, :]).cpu() 
+    test_indices = [1852, 2412, 226, 1070, 1603, 1276, 416, 1086, 200, 1033, 33, 598, 2726, 1977, 1945, 472, 629, 2144, 141, 1097, 1474, 149, 2050, 810, 831, 1385, 881, 1194, 2786, 2524, 2091, 2224, 113, 699, 1877, 1215, 382, 191, 1265, 611, 1685, 1034, 821, 1422, 1054, 2436, 1206, 1293, 2659, 973, 1198, 2242, 971, 1656, 2769, 1968, 2137, 2694, 352, 1701, 2561, 1657, 1229, 2666, 1416, 2250, 2635, 1976, 2585, 220, 1470, 1866, 2749, 2502, 1465, 714, 1687, 800, 421, 1185, 1868, 1808, 2227, 2145, 732, 2431, 2350, 323, 2706, 2239, 225, 1189, 1839, 2557, 650, 761, 892, 1430, 852, 1678]
+    subset_latents = torch.Tensor(test_latents[test_indices, :, :][:args.num_test]).cpu() 
 
     if args.method == "Baseline":
-        exp_name = f"target{target}-chtopk{args.topk}"
+        exp_name = f"{target}-chtopk{args.topk}"
     elif args.method == "Random":
-        fs3 = disentangle_fs3(fs3)
-        exp_name = f'target{target}-chNum{args.topk}-Weight{args.trg_lambda}-upper{args.ub}'
+        exp_name = f'{target}-chNum{args.topk}-Weight{args.trg_lambda}-Temp{args.temperature}'
     else:
         exp_name = None
         exit(-1)
@@ -39,17 +39,18 @@ def run_global(args, target, fs3, generator, device):
         "num channels": args.topk,
         "target weights": args.trg_lambda,
         "temperature": args.temperature,
+        "core threshold": args.ub,
     }
 
-    wandb.init(project="Global Direction", name=exp_name, group=args.method+" without gamma weight", config=config)
+    wandb.init(project="Global Direction", name=exp_name, group=args.method, config=config)
 
     align_model = CrossModalAlign(512, args)
-    align_model.to(device)
-    align_model.prototypes = torch.Tensor(fs3).to(device)
-    
+    align_model.prototypes = torch.Tensor(s_dict).to(device)
     target_embedding = GetTemplate(target, align_model.model).unsqueeze(0).float()- GetTemplate(args.neutral, align_model.model).unsqueeze(0).float()
     align_model.text_feature = target_embedding
-
+    align_model.to(device)
+    
+    
     import lpips
     lpips_alex = lpips.LPIPS(net='alex')
     lpips_alex = lpips_alex.to(device)
@@ -58,7 +59,7 @@ def run_global(args, target, fs3, generator, device):
     ckpt = torch.load(args.segment_weights)
     Segment_net.load_state_dict(ckpt) 
     Segment_net.eval()
-
+    manip_channels = set()
     for i, latent in enumerate(list(subset_latents)):
         latent = latent.unsqueeze(0).to(device)
         generated_images = []
@@ -68,7 +69,7 @@ def run_global(args, target, fs3, generator, device):
             align_model.image_feature = align_model.encode_image(img_orig)
             
         generated_images.append(img_orig)
-        manip_channels = set()
+        
         id_loss, cs, ip, us, img_prop = [AverageMeter() for _ in range(5)]
         with torch.no_grad():
             align_model.cross_modal_surgery()
@@ -83,7 +84,7 @@ def run_global(args, target, fs3, generator, device):
                 random_text_feature = l2norm(align_model.diverse_text())
                 t, p = align_model.postprocess(random_text_feature)
                 img_prop.update(p)
-            boundary_tmp2, num_c, dlatents, changed_channels = GetBoundary(fs3, t.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
+            boundary_tmp2, num_c, dlatents, changed_channels = GetBoundary(args.s_dict, t.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
             manip_channels.update(changed_channels)
             dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
             codes= MSCode(dlatents_loaded, boundary_tmp2, [5.0], device)
@@ -133,25 +134,29 @@ def run_global(args, target, fs3, generator, device):
             f"unwanted semantics": np.round(us.avg, 3), 
             f"source positive": np.round(ip.avg, 3),
             f"identity loss": id_loss.avg,
-            f"channel idx": list(manip_channels),
             f"lpips": lpips_value,
             f"image proportion": img_prop.avg,
             }
             )
+    wandb.log({
+        "channel idx": list(manip_channels)
+    })
 
     wandb.finish()
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
     parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
-    parser.add_argument('--num_attempts', type=int, default=5, help="Number of iterations for diversity measurement")
-    parser.add_argument('--trg_lambda', type=float, default=0.1, help="weight for preserving the information of target")
-    parser.add_argument('--temperature', type=float, default=2.0, help="Used for bernoulli")
+    parser.add_argument('--num_attempts', type=int, default=3, help="Number of iterations for diversity measurement")
+    parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify", choices=[25, 50, 100])
+    parser.add_argument('--num_test', type=int, default=10, help="Number of latents to test for debugging, if -1 then use all 100 images", choices=[10, -1])
+    parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
+    parser.add_argument('--temperature', type=float, default=0.5, help="Used for bernoulli")
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
     parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
     parser.add_argument("--segment_weights", type=str, default="./79999_iter.pth")
     parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
-    parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
+    parser.add_argument("--s_dict_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
     parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
     args = parser.parse_args()
@@ -164,7 +169,7 @@ if __name__=="__main__":
             channel_multiplier = 2,
         )
         
-    # TODO: Upload afhq_cat/fs3.npy & afhq_dog/fs3.npy on nsml
+    # TODO: Upload afhq_cat/s_dict.npy & afhq_dog/s_dict.npy on nsml
     if args.nsml: 
         import nsml
         with tarfile.open(os.path.join('..', nsml.DATASET_PATH, 'train','trained.tar.gz'), 'r') as f:
@@ -173,7 +178,7 @@ if __name__=="__main__":
         print(os.listdir('./'))
         # TODO: Change styleGAN pretrained model & ffhq -> afhq
         args.stylegan_weights = os.path.join("pretrained_models", "stylegan2-ffhq-config-f.pt")
-        args.fs3_path = os.path.join("global","npy", "ffhq", "fs3.npy")
+        args.s_dict_path = os.path.join("global","npy", "ffhq", "fs3.npy")
         args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
         # TODO: Randomly generate 200 latents of afhq_dog / afhq_cat respectively -> use as test_faces
         args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
@@ -184,37 +189,30 @@ if __name__=="__main__":
     generator.to(device)
 
 
-    # TODO: Write down the wandb API key below
-    wandb.login(key="5295808ee2ec2b1fef623a0b1838c5a5c55ae8d1")
-    fs3 = np.load(args.fs3_path)
-
-    # Text set A: 수민
+    # # Text set A: 수민
     # args.targets = ["Arched eyebrows", "Bushy eyebrows", "Male", "Female", "Chubby", "Smiling", "Lipstick", "Eyeglasses", \
-                    # "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs"]
+    #                 "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs"]
     # neutral = ["Eye", "Eye", "Female", "Male", "Face", "Face", "Face", "Face", "Hair", "Hair", "Hair", "Hair", "Face", "Face"]
     # upper_bound = [0.1, 0.1, 0.6, 0.2, 0.6, 0.4, 0.1, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6] 
     
-    # Text set B: 윤전 
+    # # Text set B: 윤전 
     # args.targets = ["Goatee", "Receding hairline", "Grey hair", "Brown hair",
-    #                 "Wavy hair", "Wear suit", "Double chin", "Hat", "Bags under eyes",
-    #                 "Big nose", "Big lips", "High cheekbones", "Young", "Old"]
-    # neutral = ["Face", "Hair", "Hair", "Hair", "Hair", "", "Face", "", "eye", "Nose", "Lips", "Face", "Old", "Young"]
-    # upper_bound = [0.6, 0.4, 0.6, 0.6, 0.6, 0.4, 0.6, 0.6, 0.6, 0.2, 0.2, 0.2, 0.6, 0.6]
+    #                 "Wavy hair", "Wear suit", "Double chin", "Bags under eyes",
+    #                 "Big nose", "Big lips", "Young", "Old"]
+    # neutral = ["Face", "Hair", "Hair", "Hair", "Hair", "", "Face", "", "", "", "", ""]
+    # upper_bound = [0.6, 0.4, 0.6, 0.6, 0.6, 0.4, 0.6, 0.6, 0.2, 0.2, 1.0, 1.0]
+    
 
-
-
-    # Full Text set
-    args.targets = ["Arched eyebrows", "Bushy eyebrows", "Male", "Female", "Chubby", "Smiling", "Lipstick", "Eyeglasses", \
-                    "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs", "Goatee", "Receding hairline", "Grey hair", "Brown hair",\
-                    "Wavy hair", "Wear suit", "Double chin", "Hat", "Bags under eyes", "Big nose", "Big lips", "High cheekbones", "Young", "Old"]
-    neutral = ["Eye", "Eye", "Female", "Male", "Face", "Face", "Face", "Face", "Hair", "Hair", "Hair", "Hair", "Face", "Face", "Face", "Hair", "Hair", "Hair", "Hair", "", "Face", "", "eye", "Nose", "Lips", "Face", "Old", "Young"]
-    upper_bound = [0.1, 0.1, 0.6, 0.2, 0.6, 0.4, 0.1, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.4, 0.6, 0.6, 0.6, 0.4, 0.6, 0.6, 0.6, 0.2, 0.2, 0.2, 0.6, 0.6] 
-
-    channels = [25, 50, 100]
+    # TODO: Write down the wandb API key below
+    # wandb.login(key="5295808ee2ec2b1fef623a0b1838c5a5c55ae8d1")
+    ###########################################################
+    s_dict = np.load(args.s_dict_path)
+    if args.method=="Random":
+        args.s_dict = project_away_pc(s_dict, k=5)
+    elif args.method=="Baseline":
+        args.s_dict = s_dict
     assert len(upper_bound)==len(args.targets)
     for idx, target in enumerate(args.targets):
-        for num_c in channels:
-            args.topk = num_c
-            args.neutral = neutral[idx]
-            args.ub = upper_bound[idx]
-            run_global(args, target, fs3, generator, device)
+        args.neutral = neutral[idx]
+        args.ub = upper_bound[idx]
+        run_global(args, target, s_dict, generator, device)
