@@ -3,11 +3,13 @@
 - Prepare
   
   1. Download npy/ffhq, styleGAN2 pretrained model, ArcFace pretrained model, Face segmentation pretrained model and test faces from      https://drive.google.com/drive/folders/1LXGi5WF2uxRs0gRICDSkhhfYynTs2haL?usp=sharing
+  
   2. Create Docker Contrainer
       > cd global 
       > 
       > bash ./docker/docker.sh
     
+
 
 - 실험: StyleCLIP baseline 
   
