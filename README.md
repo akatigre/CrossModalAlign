@@ -11,7 +11,7 @@
     
 
 
-- 실험: StyleCLIP baseline 
+### 실험: StyleCLIP baseline 
   
   <pre>
   <code>
@@ -20,7 +20,7 @@
   </code>
   </pre>
   
-- 실험: StyleCLIP Ours
+### 실험: StyleCLIP Ours
 
   <pre>
   <code>
