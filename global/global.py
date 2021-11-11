@@ -23,7 +23,8 @@ def run_global(args, target, s_dict, generator, device):
 
     test_latents = torch.load(args.latents_path, map_location='cpu')
     test_indices = [1852, 2412, 226, 1070, 1603, 1276, 416, 1086, 200, 1033, 33, 598, 2726, 1977, 1945, 472, 629, 2144, 141, 1097, 1474, 149, 2050, 810, 831, 1385, 881, 1194, 2786, 2524, 2091, 2224, 113, 699, 1877, 1215, 382, 191, 1265, 611, 1685, 1034, 821, 1422, 1054, 2436, 1206, 1293, 2659, 973, 1198, 2242, 971, 1656, 2769, 1968, 2137, 2694, 352, 1701, 2561, 1657, 1229, 2666, 1416, 2250, 2635, 1976, 2585, 220, 1470, 1866, 2749, 2502, 1465, 714, 1687, 800, 421, 1185, 1868, 1808, 2227, 2145, 732, 2431, 2350, 323, 2706, 2239, 225, 1189, 1839, 2557, 650, 761, 892, 1430, 852, 1678]
-    subset_latents = torch.Tensor(test_latents[test_indices, :, :][:args.num_test]).cpu() 
+    # subset_latents = torch.Tensor(test_latents[test_indices, :, :][:args.num_test]).cpu() 
+    subset_latents  = test_latents[test_indices, :, :].cpu()
 
     if args.method == "Baseline":
         exp_name = f"{target}-chtopk{args.topk}"
@@ -50,15 +51,16 @@ def run_global(args, target, s_dict, generator, device):
     align_model.text_feature = target_embedding
     align_model.to(device)
     
-    
     import lpips
     lpips_alex = lpips.LPIPS(net='alex')
     lpips_alex = lpips_alex.to(device)
 
-    Segment_net = BiSeNet(n_classes=19).to(device)
-    ckpt = torch.load(args.segment_weights)
-    Segment_net.load_state_dict(ckpt) 
-    Segment_net.eval()
+    if args.dataset != "AFHQ":
+        Segment_net = BiSeNet(n_classes=19).to(device)
+        ckpt = torch.load(args.segment_weights)
+        Segment_net.load_state_dict(ckpt) 
+        Segment_net.eval()
+
     manip_channels = set()
     for i, latent in enumerate(list(subset_latents)):
         latent = latent.unsqueeze(0).to(device)
@@ -99,7 +101,7 @@ def run_global(args, target, s_dict, generator, device):
         with torch.no_grad(): 
         # First image at generated image is original 
             segments = Text2Segment(target)
-            if args.num_attempts == 1 or len(segments) == 0: 
+            if args.num_attempts == 1 or len(segments) == 0 or args.dataset == "AFHQ":  
                 lpips_value = 0.0
             else: 
                 # PreProcess with Segmentation network 
@@ -160,6 +162,7 @@ if __name__=="__main__":
     parser.add_argument("--s_dict_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
     parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
+    parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "AFHQ"])
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
     
@@ -180,11 +183,13 @@ if __name__=="__main__":
         # TODO: Change styleGAN pretrained model & ffhq -> afhq
         args.stylegan_weights = os.path.join("pretrained_models", "stylegan2-ffhq-config-f.pt")
         args.s_dict_path = os.path.join("global","npy", "ffhq", "fs3.npy")
-        args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
         # TODO: Randomly generate 200 latents of afhq_dog / afhq_cat respectively -> use as test_faces
         args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
-        args.segment_weights = os.path.join("pretrained_models","79999_iter.pth")
-
+        
+        #### 
+        args.segment_weights = os.path.join("pretrained_models","79999_iter.pth") # ONLY FOR FFHQ
+        args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth") # ONLY FOR FFHQ
+        
 
     generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
     generator.eval()
@@ -198,14 +203,18 @@ if __name__=="__main__":
     # upper_bound = [0.1, 0.1, 0.6, 0.2, 0.6, 0.4, 0.1, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6] 
     
     # # Text set B: 윤전 
-    # args.targets = ["Goatee", "Receding hairline", "Grey hair", "Brown hair",
-    #                 "Wavy hair", "Wear suit", "Double chin", "Bags under eyes",
+    # args.targets = ["Receding hairline", "Grey hair", "Brown hair",
+    #                 "Wavy hair", "Wear suit", "Double chin", 
     #                 "Big nose", "Big lips", "Young", "Old"]
-    # neutral = ["Face", "Hair", "Hair", "Hair", "Hair", "", "Face", "", "", "", "", ""]
-    # upper_bound = [0.6, 0.4, 0.6, 0.6, 0.6, 0.4, 0.6, 0.6, 0.2, 0.2, 1.0, 1.0]
-    
+    # neutral = ["Hair", "Hair", "Hair", "Hair", "", "Face","", "", "", ""]
+    # upper_bound = [0.4, 0.6, 0.6, 0.6, 0.4, 0.6, 0.2, 0.2, 1.0, 1.0]
+
+    # # Text set : Hard
+    # args.targets = ["Asian", "He is Grumpy", "Muslim", "African", "Tanned", "Pale", "Fearful", "He is feeling pressed", "Black", "Doctor", "Nurse", "responsible", "efficient", "irresponsible", "inefficient", "intelligent", "empathetic", "Politician", "Terrorist","dangerous" ,"robbery", "homocide", "handsome", "Strong", "Influencer", "Athlete", "powerful", "kind", "friendly"]
+    # neutral = [""] * len(args.targets)
 
     # TODO: Write down the wandb API key below
+    # wandb.login(key="8a5554074aa96d2c119f37d0fda07d5267fef8f8") # Sumin 
     # wandb.login(key="5295808ee2ec2b1fef623a0b1838c5a5c55ae8d1")
     ###########################################################
     s_dict = np.load(args.s_dict_path)
@@ -213,8 +222,9 @@ if __name__=="__main__":
         args.s_dict = project_away_pc(s_dict, k=5)
     elif args.method=="Baseline":
         args.s_dict = s_dict
-    assert len(upper_bound)==len(args.targets)
+    # assert len(upper_bound)==len(args.targets) 
     for idx, target in enumerate(args.targets):
         args.neutral = neutral[idx]
-        args.ub = upper_bound[idx]
+        # args.ub = upper_bound[idx]
+        args.ub = 1.5
         run_global(args, target, s_dict, generator, device)

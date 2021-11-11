@@ -22,7 +22,9 @@ class CrossModalAlign(CLIPLoss):
         super().__init__(opts=args)
         self.edge_scaling = nn.Parameter(torch.tensor(1.0 * latent_size).sqrt().log())
         self.args = args
-        self.idloss = IDLoss(args).cuda()
+
+        if args.dataset != 'AFHQ':
+            self.idloss = IDLoss(args).cuda()
         
     def cross_modal_surgery(self):
         # Target Text Dissection
@@ -75,7 +77,11 @@ class CrossModalAlign(CLIPLoss):
         3. Image positive: Do not decrease (self.image_semantics)
         """
         # Identity Loss(ArcFace)
-        identity = self.idloss(img_orig, img_gen)[0]
+        if self.args.dataset != "AFHQ":
+            identity = self.idloss(img_orig, img_gen)[0]
+        else:
+            identity = 0
+            
         new_image_feature = self.encode_image(img_gen)
         # Core semantic
         bf = self.image_feature @ self.core_semantics.T
