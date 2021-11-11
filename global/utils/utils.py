@@ -367,6 +367,18 @@ def MSCode(dlatent_tmp, boundary_tmp, alpha, device):
         codes.append(code.cuda())
     return codes
 
+def Text2Prototype(target):
+    print(target)
+    prototype_list = ['5_o_Clock_Shadow', 'Arched_Eyebrows', 'Attractive', 'Bags_Under_Eyes', 'Bald', 'Bangs', 'Big_Lips', 'Big_Nose', 'Black_Hair', 'Blond_Hair', 'Blurry', 'Brown_Hair', 'Bushy_Eyebrows', 'Chubby', 'Double_Chin', 'Eyeglasses', 'Goatee', 'Gray_Hair', 'Heavy_Makeup', 'High_Cheekbones', 'Male', 'Mouth_Slightly_Open', 'Mustache', 'Narrow_Eyes', 'No_Beard', 'Oval_Face', 'Pale_Skin', 'Pointy_Nose', 'Receding_Hairline', 'Rosy_Cheeks', 'Sideburns', 'Smiling', 'Straight_Hair', 'Wavy_Hair', 'Wearing_Earrings', 'Wearing_Hat', 'Wearing_Lipstick', 'Wearing_Necklace', 'Wearing_Necktie', 'Young']
+    prototype_list = [idx.lower() for idx in prototype_list]
+    target = target.lower()
+    target = target.replace(' ', '_')
+    print(target)
+    if target in prototype_list:
+        return target
+    else:
+        return None
+
 def Text2Segment(target):
     # return pairs of segments 
     # segment-wise (~19 Label)

@@ -10,7 +10,7 @@ from functools import partial
 import scipy.stats as stats
 from criteria.clip_loss import CLIPLoss
 from criteria.id_loss import IDLoss
-from utils.utils import projection, logitexp
+from utils.utils import projection, logitexp, Text2Prototype
 
 l2norm = partial(F.normalize, p=2, dim=1)
 
@@ -67,7 +67,7 @@ class CrossModalAlign(CLIPLoss):
         indices = [i for i, b in enumerate(mask) if b]
         return indices
         
-    def evaluation(self, img_orig, img_gen):
+    def evaluation(self, img_orig, img_gen, target):
         """Evaluates manipulative quality & disentanglement in the generated image
         1. Core semantic: Increased (self.core_semantics)
         2. Unwanted semantic: Do not increase (self.text_cond)
@@ -81,6 +81,8 @@ class CrossModalAlign(CLIPLoss):
         af = new_image_feature @ self.core_semantics.T
         cs = (af - bf).mean(dim=1)
         cs = cs.detach().cpu().numpy()
+
+        
 
         # Unwanted semantic (exclude anchors from image positive)
         
@@ -98,7 +100,34 @@ class CrossModalAlign(CLIPLoss):
             ip = (af - bf).mean(dim=1)
             ip = ip.detach().cpu().numpy()
 
-        return identity, cs, abs(us), abs(ip)
+        attr = Text2Prototype(target)
+        if attr != None: 
+            attr_prototype = torch.load(os.path.join('./prototypes-3', f"{attr}.pt")).cuda() # [512]
+            # attr_neg = torch.load(os.path.join('./prototypes', f"{attr}_neg.pt")).cuda() # [512]
+            # attr_prototype = projection(basis=self.text_feature, target=attr_prototype.float())
+            # attr_orig_1 = self.image_feature @ attr_pos.float().T 
+            # attr_orig_2 = self.image_feature @ attr_neg.float().T
+
+            attr_orig = self.image_feature @ attr_prototype.T.float()
+            # attr_orig = attr_orig_1 - attr_orig_2
+            print(attr_orig)
+            # print(attr_orig_2)
+            attr_gen = new_image_feature @ attr_prototype.T.float()
+            # attr_gen_1 = new_image_feature @ attr_pos.float().T# - new_image_feature @ attr_neg.float().T
+            # attr_gen_2 = new_image_feature @ attr_neg.float().T
+            print(attr_gen)
+            # print(attr_gen_2)
+            # attr_gen = attr_gen_1 - attr_gen_2
+
+            # tmp = self.core_semantics @ attr_prototype.T.float()
+            # print(tmp)
+            attr = attr_gen - attr_orig
+            print(attr.shape)
+            attr = attr.detach().cpu().numpy()
+        else: 
+            attr = 0.0
+
+        return identity, cs, abs(us), abs(ip), attr
 
     def postprocess(self, random_text_feature):
         weights = self.image_feature @ self.image_semantics.T # Image positives weighted by image feature

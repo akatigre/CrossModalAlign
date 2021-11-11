@@ -69,7 +69,7 @@ def run_global(args, target, fs3, generator, device):
             
         generated_images.append(img_orig)
         manip_channels = set()
-        id_loss, cs, ip, us, img_prop = [AverageMeter() for _ in range(5)]
+        id_loss, cs, ip, us, img_prop, attr_dist = [AverageMeter() for _ in range(6)]
         with torch.no_grad():
             align_model.cross_modal_surgery()
 
@@ -92,8 +92,8 @@ def run_global(args, target, fs3, generator, device):
             
             # Evaluation
             with torch.no_grad():
-                _id, _cs, _us, _ip = align_model.evaluation(img_orig, img_gen)
-                id_loss.update(_id); cs.update(_cs); us.update(_us); ip.update(_ip)
+                _id, _cs, _us, _ip, _ad = align_model.evaluation(img_orig, img_gen, target)
+                id_loss.update(_id); cs.update(_cs); us.update(_us); ip.update(_ip); attr_dist.update(_ad)
 
         with torch.no_grad(): 
         # First image at generated image is original 
@@ -136,6 +136,7 @@ def run_global(args, target, fs3, generator, device):
             f"channel idx": list(manip_channels),
             f"lpips": lpips_value,
             f"image proportion": img_prop.avg,
+            "attr_dist" : attr_dist.avg,
             }
             )
 
@@ -149,7 +150,7 @@ if __name__=="__main__":
     parser.add_argument('--temperature', type=float, default=2.0, help="Used for bernoulli")
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
     parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
-    parser.add_argument("--segment_weights", type=str, default="./79999_iter.pth")
+    parser.add_argument("--segment_weights", type=str, default="../pretrained_models/79999_iter.pth")
     parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
     parser.add_argument("--fs3_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
@@ -177,6 +178,7 @@ if __name__=="__main__":
         args.ir_se50_weights = os.path.join("pretrained_models", "model_ir_se50.pth")
         # TODO: Randomly generate 200 latents of afhq_dog / afhq_cat respectively -> use as test_faces
         args.latents_path = os.path.join("pretrained_models", "test_faces.pt")
+        args.segment_weights = os.path.join("pretrained_models","79999_iter.pth")
 
 
     generator.load_state_dict(torch.load(args.stylegan_weights, map_location='cpu')['g_ema'])
@@ -185,7 +187,7 @@ if __name__=="__main__":
 
 
     # TODO: Write down the wandb API key below
-    wandb.login(key="5295808ee2ec2b1fef623a0b1838c5a5c55ae8d1")
+    # wandb.login(key="8a5554074aa96d2c119f37d0fda07d5267fef8f8") # sumin
     fs3 = np.load(args.fs3_path)
 
     # Text set A: 수민
@@ -200,7 +202,6 @@ if __name__=="__main__":
     #                 "Big nose", "Big lips", "High cheekbones", "Young", "Old"]
     # neutral = ["Face", "Hair", "Hair", "Hair", "Hair", "", "Face", "", "eye", "Nose", "Lips", "Face", "Old", "Young"]
     # upper_bound = [0.6, 0.4, 0.6, 0.6, 0.6, 0.4, 0.6, 0.6, 0.6, 0.2, 0.2, 0.2, 0.6, 0.6]
-
 
 
     # Full Text set
