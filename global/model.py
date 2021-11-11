@@ -1,18 +1,15 @@
 import os
-import numpy as np
 import sys
-sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
+import numpy as np
+sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
+)
 import torch
 from torch import nn
-import torch.nn.functional as F
 import torch.distributions as D
-from functools import partial
 import scipy.stats as stats
 from criteria.clip_loss import CLIPLoss
 from criteria.id_loss import IDLoss
-from utils.utils import projection, logitexp
-
-l2norm = partial(F.normalize, p=2, dim=1)
+from utils.utils import projection, logitexp, l2norm
 
 class CrossModalAlign(CLIPLoss):
     def __init__(
@@ -27,24 +24,26 @@ class CrossModalAlign(CLIPLoss):
         
     def cross_modal_surgery(self):
         # Target Text Dissection
-        text_probs = (self.text_feature @ self.prototypes.T).squeeze(0).detach().cpu()
-        sc_mask = self.outlier_sigma(text_probs, alpha=self.args.ub)
+        text_probs = (self.text_feature @ self.prototypes.T)
+        sc_mask = self.outlier_sigma(text_probs.squeeze(0), alpha=self.args.ub)
         print(f"Target core: {len(sc_mask)}-{sc_mask}")
 
-        self.core_semantics = torch.stack([self.prototypes[idx] for idx in sc_mask])
-        self.core_semantics = l2norm(torch.cat([self.text_feature, self.core_semantics]))
+        core_semantics = torch.stack([self.prototypes[idx] for idx in sc_mask])
+        self.core_semantics = l2norm(torch.cat([self.text_feature, core_semantics]))
         # Source Image Dissection
-        image_probs = (self.image_feature @ self.prototypes.T).squeeze(0).detach().cpu()
-        ip_mask = self.outlier_sigma(image_probs, alpha=self.args.ub)
+        image_probs = (self.image_feature @ self.prototypes.T)
+        ip_mask = self.outlier_sigma(image_probs.squeeze(0), alpha=1.0)
         only_img_mask = [i for i in ip_mask if i not in sc_mask]
         overlap_mask = [i for i in ip_mask if i in sc_mask] # 겹치는 것 중에서 방향이 일치하는 경우만 포함  
-        ip_mask =[idx for idx in overlap_mask if image_probs[idx] * text_probs[idx]>=0] + only_img_mask
-        self.image_semantics = l2norm(torch.stack([self.prototypes[idx] for idx in ip_mask]))
+        ip_mask =[idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0] + only_img_mask
+        img_proto = image_probs.T * self.prototypes
+        self.image_semantics = l2norm(img_proto[ip_mask])
         print(f"Source Positive {self.image_semantics.shape[0]}")
 
         # Unwanted semantics from text should exclude core semantics and image positives
         unwanted_mask = [i for i in range(image_probs.shape[0]) if i not in ip_mask+sc_mask]
-        self.unwanted_semantics = torch.stack([self.prototypes[idx] for idx in unwanted_mask])
+        txt_proto = text_probs.T * self.prototypes
+        self.unwanted_semantics = l2norm(txt_proto[unwanted_mask])
 
     def diverse_text(self):
         N = self.core_semantics.shape[0]
@@ -56,8 +55,8 @@ class CrossModalAlign(CLIPLoss):
         random_edges = D.relaxed_bernoulli.LogitRelaxedBernoulli(logits=edges, temperature=temp)
         sampled_edges = random_edges.rsample()
         weights = sampled_edges * torch.sign(cos_sim)
-        print(f"Random Weights: {weights.detach()}")
-        return torch.matmul(weights, self.core_semantics)
+        diverse_core_manifold = torch.matmul(weights, self.core_semantics) # inner product
+        return diverse_core_manifold # 1, 512
 
     def outlier_sigma(self, probs, alpha):
         sigma = probs.std()
@@ -101,10 +100,9 @@ class CrossModalAlign(CLIPLoss):
         return identity, cs, abs(us), abs(ip)
 
     def postprocess(self, random_text_feature):
-        weights = self.image_feature @ self.image_semantics.T # Image positives weighted by image feature
-        image_manifold = l2norm(torch.mm(weights, self.image_semantics))
+        image_manifold = self.image_semantics.sum(dim=0)
         gamma = torch.abs(self.args.trg_lambda/(self.image_feature @ self.text_feature.T))
-        text_star = l2norm(gamma * random_text_feature + image_manifold)
+        text_star = l2norm(gamma*random_text_feature + image_manifold)
         img_prop = image_manifold.norm()/(gamma * random_text_feature + image_manifold).norm()
         return text_star.detach().cpu().numpy(), img_prop
 
