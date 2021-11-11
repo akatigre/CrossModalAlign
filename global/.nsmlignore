@@ -1,4 +1,6 @@
-../pretrained_models/*
+../pretrained_models/model*
+../pretrained_models/stylegan*
+../pretrained_models/test_faces.pt
 results/*
 docker/*
 wandb/*
