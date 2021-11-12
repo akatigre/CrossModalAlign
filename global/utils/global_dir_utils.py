@@ -3,6 +3,7 @@ import copy
 import numpy as np
 import pickle
 import torch
+from utils.stylegan_models import encoder, decoder
 
 imagenet_templates = [
     'a bad photo of a {}.',
@@ -86,18 +87,6 @@ imagenet_templates = [
     'a tattoo of the {}.',
 ]
 
-def GetTemplate(target, model):
-    """
-    model: CLIP 
-    """
-    with torch.no_grad():
-        texts = [template.format(target) for template in imagenet_templates] #format with class
-        texts = clip.tokenize(texts).cuda() #tokenize
-        class_embeddings = model.encode_text(texts) #embed with text encoder
-        class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
-        class_embedding = class_embeddings.mean(dim=0)
-        class_embedding /= class_embedding.norm()
-    return class_embedding
 
 def GetBoundary(fs3, dt, args, style_space, style_names):
     """
@@ -178,3 +167,39 @@ def MSCode(dlatent_tmp, boundary_tmp, alpha, device):
         code = torch.Tensor(dlatent_tmp2[i].reshape(tmp))
         codes.append(code.cuda())
     return codes
+
+def zeroshot_classifier(classnames, model):
+    """
+    model: CLIP 
+    """
+    with torch.no_grad():
+        zeroshot_weights = []
+        for classname in classnames:
+            texts = [template.format(classname) for template in imagenet_templates] #format with class
+            texts = clip.tokenize(texts).cuda() #tokenize
+            class_embeddings = model.encode_text(texts) #embed with text encoder
+            class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
+            class_embedding = class_embeddings.mean(dim=0)
+            class_embedding /= class_embedding.norm()
+            zeroshot_weights.append(class_embedding)
+        zeroshot_weights = torch.stack(zeroshot_weights, dim=1).cuda()
+    return zeroshot_weights
+
+def create_dt(target, model, neutral=""):
+    text_features = zeroshot_classifier([target, neutral], model).T
+    dt = text_features[0]-text_features[1]
+    dt = dt / dt.norm()
+    return dt.unsqueeze(0).float()
+
+def create_image_S(generator, latent):
+    with torch.no_grad():
+        style_space, style_names, noise_constants = encoder(generator, latent)
+        img_orig = decoder(generator, style_space, latent, noise_constants)
+    return img_orig, style_space, style_names, noise_constants
+
+def manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=None, s_dict=None, device="cuda:0"):
+    boundary_tmp2, _, _, _ = GetBoundary(s_dict, t.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
+    dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
+    manip_codes= MSCode(dlatents_loaded, boundary_tmp2, [alpha], device)
+    img_gen = decoder(generator, manip_codes, latent, noise_constants)
+    return img_gen, manip_codes, style_space
