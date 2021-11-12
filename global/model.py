@@ -81,14 +81,18 @@ class CrossModalAlign(CLIPLoss):
         return indices
 
         
-    def evaluation(self, img_orig, img_gen):
+    def evaluation(self, img_orig, img_gen, target):
         """Evaluates manipulative quality & disentanglement in the generated image
         1. Core semantic: Increased (self.core_semantics)
         2. Unwanted semantic: Do not increase (self.text_cond)
         3. Image positive: Do not decrease (self.image_semantics)
         """
         # Identity Loss(ArcFace)
-        identity = self.idloss(img_orig, img_gen)[0]
+        if self.args.dataset != "AFHQ":
+            identity = self.idloss(img_orig, img_gen)[0]
+        else:
+            identity = 0
+            
         new_image_feature = self.encode_image(img_gen)
 
 

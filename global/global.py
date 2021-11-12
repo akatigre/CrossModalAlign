@@ -96,6 +96,7 @@ def run_global(generator, align_model, args, target, neutral):
     Segment_net.eval()
 
 
+    manip_channels = set()
     for i, latent in enumerate(list(subset_latents)):
         latent = latent.unsqueeze(0).to(args.device)
         generated_images = []
@@ -192,6 +193,7 @@ if __name__=="__main__":
     parser.add_argument("--excludeRandom", action='store_true', help="do not use randomness of core semantics")
 
     parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
+    parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "AFHQ"])
     args = parser.parse_args()
     args.device = torch.device("cuda:0" if torch.cuda.is_available() else 'cpu')
     
