@@ -11,7 +11,7 @@ RUN pip install h5py==2.9.0
 RUN pip install imageio==2.9.0
 RUN pip install imageio-ffmpeg==0.4.2
 RUN pip install tqdm==4.49.0
-RUN pip install click ninja ftfy regex gdown opencv-python
+RUN pip install click ninja ftfy regex gdown opencv-python lpips
 RUN pip install imageio-ffmpeg==0.4.3 pyspng==0.1.0
 RUN pip install torch==1.7.1+cu110 torchvision==0.8.2+cu110 -f https://download.pytorch.org/whl/torch_stable.html
 RUN pip install git+https://github.com/openai/CLIP.git
