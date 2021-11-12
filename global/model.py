@@ -11,6 +11,7 @@ import scipy.stats as stats
 from criteria.clip_loss import CLIPLoss
 from criteria.id_loss import IDLoss
 from utils.utils import logitexp, l2norm
+from utils.eval_utils import Text2Prototype
 from sklearn.neighbors import LocalOutlierFactor
 
 class CrossModalAlign(CLIPLoss):
@@ -95,7 +96,6 @@ class CrossModalAlign(CLIPLoss):
             
         new_image_feature = self.encode_image(img_gen)
 
-
         # Core semantic
         bf = self.image_feature @ self.core_semantics.T
         af = new_image_feature @ self.core_semantics.T
@@ -118,7 +118,17 @@ class CrossModalAlign(CLIPLoss):
             ip = (af - bf).mean(dim=1)
             ip = ip.detach().cpu().numpy()
 
-        return identity, cs, abs(us), abs(ip)
+        attr = Text2Prototype(target)
+        if attr != None: 
+            attr_prototype = torch.load(os.path.join('./prototypes-3', f"{attr}.pt")).to(self.args.device)
+            attr_orig = self.image_feature @ attr_prototype.T.float()
+            attr_gen = new_image_feature @ attr_prototype.T.float()
+            attr = attr_gen - attr_orig
+            attr = attr.detach().cpu().numpy()
+        else: 
+            attr = 0.0
+
+        return identity, cs, abs(us), abs(ip), attr
 
     def postprocess(self, random_text_feature):
         image_manifold = l2norm(self.image_semantics.sum(dim=0, keepdim=True))

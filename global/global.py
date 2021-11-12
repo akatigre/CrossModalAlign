@@ -105,7 +105,7 @@ def run_global(generator, align_model, args, target, neutral):
         align_model.image_feature = align_model.encode_image(img_orig)
         generated_images.append(img_orig)
         
-        id_loss, cs, ip, us, img_prop = [AverageMeter() for _ in range(5)]
+        id_loss, cs, ip, us, img_prop, attr = [AverageMeter() for _ in range(6)]
         with torch.no_grad():
             # Prepare model for evaluation
             cores = align_model.cross_modal_surgery()
@@ -126,8 +126,8 @@ def run_global(generator, align_model, args, target, neutral):
             
             # Evaluation
             with torch.no_grad():
-                _id, _cs, _us, _ip = align_model.evaluation(img_orig, img_gen)
-                id_loss.update(_id); cs.update(_cs); us.update(_us); ip.update(_ip)
+                _id, _cs, _us, _ip, _attr = align_model.evaluation(img_orig, img_gen, target)
+                id_loss.update(_id); cs.update(_cs); us.update(_us); ip.update(_ip); attr.update(_attr)
 
         with torch.no_grad(): 
         # First image at generated image is original 
@@ -170,6 +170,7 @@ def run_global(generator, align_model, args, target, neutral):
             f"identity loss": id_loss.avg,
             f"lpips": lpips_value,
             f"image proportion": img_prop.avg,
+            "attr_dist": attr.avg,
             }
             )
     wandb.finish()
