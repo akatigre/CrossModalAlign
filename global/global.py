@@ -187,7 +187,7 @@ if __name__=="__main__":
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
     parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
-    parser.add_argument("--segment_weights", type=str, default="../pretrained_models/79999_iter.pth")
+    parser.add_argument("--segment_weights", type=str, default="./pretrained_models/79999_iter.pth")
     parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
     parser.add_argument("--s_dict_path", type=str, default="./npy/ffhq/fs3.npy")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
