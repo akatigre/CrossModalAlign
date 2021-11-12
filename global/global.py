@@ -82,8 +82,13 @@ def run_global(generator, align_model, args, target, neutral):
         "target weights": args.trg_lambda,
         "temperature": args.temperature,
     }
-
-    wandb.init(project="Global Direction", name=exp_name, group=args.method+"+LOF", config=config)
+    group_name = args.method+"+LOF"
+    if args.excludeImage:
+        group_name += "-Image"
+    if args.excludeRandom:
+        group_name += "-Diverse"
+    
+    wandb.init(project="Global Direction", name=exp_name, group=group_name, config=config)
 
     
     import lpips
@@ -117,8 +122,11 @@ def run_global(generator, align_model, args, target, neutral):
                 t = t/np.linalg.norm(t)
             else:
             # Random Interpolation
-                random_text_feature = align_model.diverse_text(cores)
-                t, p = align_model.postprocess(random_text_feature)
+                if not args.excludeRandom:
+                    cores = align_model.diverse_text(cores)
+                else:
+                    cores = l2norm(align_model.core_semantics.sum(dim=0, keepdim=True))
+                t, p = align_model.postprocess(cores)
                 img_prop.update(p)
             
             img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
@@ -201,15 +209,13 @@ if __name__=="__main__":
 
     if args.textset==0:
         args.targets = ["Arched eyebrows", "Bushy eyebrows", "Male", "Female", "Chubby", "Smiling", "Lipstick", "Eyeglasses", \
-                        "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings", "Sidebunrs"]
-        neutral = ["Eye", "Eye", "Female", "Male", "Face", "Face", "Face", "Face", "Hair", "Hair", "Hair", "Hair", "Face", "Face"]
-        args.topk=25
+                        "Bangs", "Black hair", "Blond hair", "Straight hair", "Earrings"]
+        neutral = ["Eye", "Eye", "Female", "Male", "Face", "Face", "Face", "Face", "Hair", "Hair", "Hair", "Hair", "Face"]
+        args.topk=50
     elif args.textset==1:
-        args.targets = ["Goatee", "Receding hairline", "Grey hair", "Brown hair",
-                        "Wavy hair", "Wear suit", "Double chin", "Bags under eyes",
-                        "Big nose", "Big lips", "Young", "Old"]
+        args.targets = ["Goatee", "Receding hairline", "Grey hair", "Brown hair", "Wavy hair", "Wear suit", "Double chin", "Bags under eyes","Big nose", "Big lips", "Young", "Old"]
         neutral = ["Face", "Hair", "Hair", "Hair", "Hair", "", "Face", "", "", "", "", ""]
-        args.topk=25
+        args.topk=50
     elif args.textset==2:
         args.targets = ["Asian", "He is Grumpy", "Muslim", "Tanned", "Pale", "Fearful", "He is feeling pressed","irresponsible", "inefficient", "intelligent", "Terrorist", "homocide", "handsome", "friendly"]
         neutral = [""] * len(args.targets)
