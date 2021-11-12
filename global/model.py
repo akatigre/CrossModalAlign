@@ -82,7 +82,7 @@ class CrossModalAlign(CLIPLoss):
         return indices
 
         
-    def evaluation(self, img_orig, img_gen, target):
+    def evaluation(self, img_orig, img_gen):
         """Evaluates manipulative quality & disentanglement in the generated image
         1. Core semantic: Increased (self.core_semantics)
         2. Unwanted semantic: Do not increase (self.text_cond)
