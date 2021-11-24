@@ -15,9 +15,11 @@ import torch.distributions as D
 import scipy.stats as stats
 from criteria.clip_loss import CLIPLoss
 from criteria.id_loss import IDLoss
-from utils.utils import logitexp, l2norm
+from utils.utils import l2norm
 from utils.eval_utils import Text2Prototype
 from sklearn.neighbors import LocalOutlierFactor
+import ckwrap
+
 
 class CrossModalAlign(CLIPLoss):
     def __init__(
@@ -33,13 +35,16 @@ class CrossModalAlign(CLIPLoss):
     def cross_modal_surgery(self):
         # Target Text Dissection
         text_probs = (self.text_feature @ self.prototypes.T)
-        sc_mask = self.outlier_sigma(text_probs.squeeze(0), cnt=0.5)
+        sc_mask, (core_mask, perip_mask) = self.outlier_sigma(text_probs.squeeze(0), cnt=0.5)
         # self.core_probs = torch.stack([text_probs.squeeze(0)[idx] for idx in sc_mask])
-        print(f"Target core: {len(sc_mask)}-{sc_mask}")
+        print(f"Target core: {len(sc_mask)}-{sc_mask} Core {core_mask} Peripheral {perip_mask}")
+        self.core_mask = np.where(sc_mask == core_mask)
         self.core_semantics = l2norm(torch.stack([text_probs.squeeze(0)[idx] * self.prototypes[idx] for idx in sc_mask]))
         # Source Image Dissection
         image_probs = (self.image_feature @ self.prototypes.T)
-        ip_mask = self.outlier_sigma(image_probs.squeeze(0),cnt=0.1)
+        ip_mask, _ = self.outlier_sigma(image_probs.squeeze(0),cnt=0.1)
+
+        #* Image positive filtering process
         only_img_mask = [i for i in ip_mask if i not in sc_mask]
         overlap_mask = [i for i in ip_mask if i in sc_mask] # 겹치는 것 중에서 방향이 일치하는 경우만 포함  
         ip_mask =[idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0] + only_img_mask
@@ -56,12 +61,10 @@ class CrossModalAlign(CLIPLoss):
     def diverse_text(self, cores):
         N = cores.shape[0]
         cos_sim = self.text_feature @ cores.T
-        distances = (self.text_feature ** 2).sum(dim=1, keepdim=True) + (cores ** 2).sum(dim=1) - 2 * self.text_feature @ cores.T
-        distances = - 0.5 * distances / self.edge_scaling.exp()
-        edges = logitexp(distances.view(len(self.text_feature), len(cores)))
-        random_edges = D.bernoulli.Bernoulli(logits=edges/4)
+        random_edges = D.bernoulli.Bernoulli(probs = torch.abs(cos_sim))
         sampled_edges = random_edges.sample()
         print(f"sampled :{torch.count_nonzero(sampled_edges)}")
+        sampled_edges[self.core_mask] = 1
         weights = (cos_sim * sampled_edges) * torch.sign(cos_sim)
         diverse_core_manifold = l2norm(torch.matmul(weights, cores)) # inner product
         return diverse_core_manifold
@@ -80,11 +83,13 @@ class CrossModalAlign(CLIPLoss):
         clf = LocalOutlierFactor(n_neighbors=5, contamination=cnt)
         y_pred = clf.fit_predict(candidate_probs)
         outlier_mask = (y_pred==-1)
-        # indices = list(compress(candidate_indices, outlier_mask.tolist()))
-        indices=candidate_indices
-        # lof_score = clf.negative_outlier_factor_[outlier_mask]
-        # print([(i,np.round(j, 2)) for i, j in zip(indices, lof_score)])
-        return indices
+        indices = list(compress(candidate_indices, outlier_mask.tolist()))
+        lof_score = clf.negative_outlier_factor_[outlier_mask]
+        km = ckwrap.ckmeans(lof_score, 2)
+        buckets = [[],[]]
+        for i in range(len(lof_score)):
+            buckets[km.labels[i]].append(indices[i])
+        return indices, buckets
 
         
     def evaluation(self, img_orig, img_gen, target):
