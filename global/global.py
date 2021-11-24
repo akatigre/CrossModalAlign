@@ -124,12 +124,12 @@ def run_global(generator, align_model, args, target, neutral):
             else:
             # Random Interpolation
                 if not args.excludeRandom:
-                    cores = align_model.diverse_text(cores)
+                    random_cores = align_model.diverse_text(cores)
                 else:
-                    cores = l2norm(align_model.core_semantics.sum(dim=0, keepdim=True))
-                t, p = align_model.postprocess(cores)
+                    random_cores = l2norm(align_model.core_semantics.sum(dim=0, keepdim=True))
+                t, p = align_model.postprocess(random_cores)
                 img_prop.update(p)
-            
+                
             img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
             generated_images.append(img_gen)
             
