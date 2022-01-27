@@ -91,8 +91,10 @@ imagenet_templates = [
 def GetBoundary(fs3, dt, args, style_space, style_names):
     """
     fs3: collection of predefined style directions for each channel (6048, 512)
+    when StyleGAN generator has size of 512, 
+    fs3 : (5376, 512)
     """
-    tmp = np.dot(fs3, dt)
+    tmp = np.dot(fs3, dt) 
     if args.topk == 0: 
         ds_imp = copy.copy(tmp)
         select = np.abs(tmp)< args.beta
@@ -100,7 +102,7 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
         ds_imp[select] = 0
         tmp = np.abs(ds_imp).max()
         ds_imp /=tmp
-        boundary_tmp2, dlatents = SplitS(ds_imp, style_names, style_space, args.nsml)
+        boundary_tmp2, dlatents = SplitS(ds_imp, style_names, style_space, args.dataset)
         print('num of channels being manipulated:',num_c)
         return boundary_tmp2, num_c, dlatents, []
 
@@ -112,23 +114,23 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
         ds_imp[idx] = tmp[idx]
     tmp = np.abs(ds_imp).max()
     ds_imp/=tmp
-    boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.nsml)
+    boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.dataset)
     print('num of channels being manipulated:',num_c)
     return boundary_tmp2, num_c, dlatents, idxs[:5]
         
-def SplitS(ds_p, style_names, style_space, nsml=False):
+def SplitS(ds_p, style_names, style_space, dataset, nsml=False):
     """
     Split array of 6048(toRGB ignored) channels into corresponding channel size (into 9088)
     """
     all_ds=[]
     start=0
-    dataset_path = "./npy/ffhq/" if not nsml else "./global/npy/ffhq/"
+    dataset_path = f"./npy/{dataset}/" if not nsml else f"./global/npy/{dataset}/"
     tmp=dataset_path+'S'
     with open(tmp, "rb") as fp:
-        _, dlatents=pickle.load( fp)
+        _, dlatents=pickle.load(fp)
     tmp=dataset_path+'S_mean_std'
     with open(tmp, "rb") as fp:
-        m, std=pickle.load( fp)
+        m, std=pickle.load(fp)
 
     for i, name in enumerate(style_names):
         if "torgb" not in name:

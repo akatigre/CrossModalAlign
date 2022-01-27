@@ -55,7 +55,7 @@ def decoder(G, style_space, latent, noise):
     out = G.input(latent)
 
     out = conv_warper(G.conv1, out, style_space[0], noise[0])
-    skip = G.to_rgb1(out, latent[:, 0])
+    skip, _ = G.to_rgb1(out, latent[:, 0])
 
     i = 2; j = 1
     for conv1, conv2, noise1, noise2, to_rgb in zip(
@@ -63,7 +63,7 @@ def decoder(G, style_space, latent, noise):
     ):
         out = conv_warper(conv1, out, style_space[i], noise=noise1)
         out = conv_warper(conv2, out, style_space[i+1], noise=noise2)
-        skip = to_rgb(out,  latent[:, j + 2], skip)
+        skip, _ = to_rgb(out,  latent[:, j + 2], skip)
 
         i += 3; j += 2
 
@@ -72,6 +72,7 @@ def decoder(G, style_space, latent, noise):
     return image
 
 def encoder(G, latent): 
+    print(G)
     noise_constants = [getattr(G.noises, 'noise_{}'.format(i)) for i in range(G.num_layers)]
     style_space = []
     style_names = []

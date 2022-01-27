@@ -30,7 +30,10 @@ class CrossModalAlign(CLIPLoss):
         super().__init__(opts=args)
         self.edge_scaling = nn.Parameter(torch.tensor(1.0 * latent_size).sqrt().log())
         self.args = args
-        self.idloss = IDLoss(args).to(args.device)
+        if args.dataset == "FFHQ":
+            self.idloss = IDLoss(args).to(args.device)
+        else:
+            self.idloss = None
         
     def cross_modal_surgery(self):
         # Target Text Dissection
@@ -99,7 +102,7 @@ class CrossModalAlign(CLIPLoss):
         3. Image positive: Do not decrease (self.image_semantics)
         """
         # Identity Loss(ArcFace)
-        if self.args.dataset != "AFHQ":
+        if self.args.dataset == "FFHQ":
             identity = self.idloss(img_orig, img_gen)[0]
         else:
             identity = 0
@@ -128,15 +131,7 @@ class CrossModalAlign(CLIPLoss):
             ip = (af - bf).mean(dim=1)
             ip = ip.detach().cpu().numpy()
 
-        attr = Text2Prototype(target)
-        if attr != None: 
-            attr_prototype = torch.load(os.path.join('./prototypes-3', f"{attr}.pt")).to(self.args.device)
-            attr_orig = self.image_feature @ attr_prototype.T.float()
-            attr_gen = new_image_feature @ attr_prototype.T.float()
-            attr = attr_gen - attr_orig
-            attr = attr.detach().cpu().numpy()
-        else: 
-            attr = 0.0
+        attr = 0.0
 
         return identity, cs, abs(us), abs(ip), attr
 
