@@ -2,21 +2,16 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 import torch
-import tarfile
 import argparse
 import numpy as np
 np.set_printoptions(suppress=True)
 
-import pickle 
-
 from utils.utils import *
 from utils.global_dir_utils import create_dt, manipulate_image, create_image_S
-from utils.eval_utils import Text2Segment, maskImage
 from model import CrossModalAlign
 from models.stylegan2.model import Generator
 
 from torchvision.utils import save_image
-from dnnlib import tflib  
 
 def prepare(args):
     # Load styleGAN generator
@@ -26,9 +21,6 @@ def prepare(args):
         n_mlp = 8,
         channel_multiplier = 2,
     )
-    # tflib.init_tf()
-    # with open(args.stylegan_weights, 'rb') as f:
-        # _, _, generator = pickle.load(f)
     ckpt = torch.load(args.stylegan_weights, map_location='cpu')['g_ema']
     generator.load_state_dict(ckpt)
     generator.eval()
@@ -50,7 +42,6 @@ def prepare(args):
 
 
 def run_global(generator, align_model, args, target, neutral):
-
     mean_latent = generator.mean_latent(4096)
 
     path = False # if False, always use mean_latent
@@ -58,14 +49,13 @@ def run_global(generator, align_model, args, target, neutral):
         latent_code_init_not_trunc = torch.randn(1, 1).cuda()
         latent_code_init_not_trunc = torch.cat([torch.zeros(1, 511).cuda(),latent_code_init_not_trunc], dim=-1)
         with torch.no_grad():
-            _, latent, _ = generator([latent_code_init_not_trunc], return_latents=True,
+            _, latent, _ = generator.forward([latent_code_init_not_trunc], return_latents=True,
                                         truncation=args.truncation, truncation_latent=mean_latent)
                                         # truncation=args.truncation, truncation_latent=latent_code_init_not_trunc)
         torch.save(latent, f'latent-{args.dataset}.pt')
     else:
         latent = mean_latent.detach().clone().repeat(1, 18, 1)
     latent.to(args.device)
-
     
     target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
     align_model.text_feature = target_embedding
@@ -140,7 +130,7 @@ if __name__=="__main__":
     parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify", choices=[25, 50, 100])
     parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
-
+    parser.add_argument("--truncation", type=float, default=0.7, help="used only for the initial latent vector, and only when a latent code path is"                                                                "not provided")
     parser.add_argument("--stylegan_size", type=int, default=512, help="StyleGAN resolution for AFHQ")
     parser.add_argument("--excludeImage", action='store_true', help="do not use image manifold information")
     parser.add_argument("--excludeRandom", action='store_true', help="do not use randomness of core semantics")
@@ -153,11 +143,11 @@ if __name__=="__main__":
 
     if args.dataset != "FFHQ":
         args.s_dict_path = f"./npy/{args.dataset}/fs3.npy"
-        args.stylegan_weights = f"../pretrained_models/{args.dataset}.pkl"
+        args.stylegan_weights = f"../pretrained_models/{args.dataset}.pt"
     
     generator, align_model, s_dict, args = prepare(args)
 
-    args.targets = ["Lipstick"]
+    args.targets = ["cute"]
     neutral = [""]
 
     ###########################################################

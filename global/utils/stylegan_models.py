@@ -1,5 +1,5 @@
 import torch
-import  torch.nn.functional as F
+import torch.nn.functional as F
 
 def conv_warper(layer, input, style, noise):
     # the conv should change
@@ -72,7 +72,6 @@ def decoder(G, style_space, latent, noise):
     return image
 
 def encoder(G, latent): 
-    print(G)
     noise_constants = [getattr(G.noises, 'noise_{}'.format(i)) for i in range(G.num_layers)]
     style_space = []
     style_names = []

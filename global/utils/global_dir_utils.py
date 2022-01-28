@@ -134,15 +134,26 @@ def SplitS(ds_p, style_names, style_space, dataset, nsml=False):
 
     for i, name in enumerate(style_names):
         if "torgb" not in name:
-            tmp=style_space[i].shape[1]
-            end=start+tmp
-            tmp=ds_p[start:end] * std[i]
+            tmp = style_space[i].shape[1]
+            end = start + tmp
+            tmp = ds_p[start:end]
             all_ds.append(tmp)
-            start=end
+            start = end
+    print(len(all_ds))
+    print(len(style_names))
+
+    all_ds2 = []
+    t_index = 0
+    for i, name in enumerate(style_names):
+        if ("torgb" not in name) and (not len(all_ds[t_index])==0):
+            tmp=all_ds[t_index] * std[i]
+            all_ds2.append(tmp)
+            t_index += 1
         else:
             tmp = np.zeros(len(dlatents[i][0]))
-            all_ds.append(tmp)
-    return all_ds, dlatents
+            all_ds2.append(tmp)
+    del all_ds
+    return all_ds2, dlatents
 
 def MSCode(dlatent_tmp, boundary_tmp, alpha, device):
     """
