@@ -39,13 +39,15 @@ class CrossModalAlign(CLIPLoss):
         # Target Text Dissection
         text_probs = (self.text_feature @ self.prototypes.T)
         sc_mask, (core_mask, perip_mask) = self.outlier_sigma(text_probs.squeeze(0), cnt=0.5)
-        # self.core_probs = torch.stack([text_probs.squeeze(0)[idx] for idx in sc_mask])
         print(f"Target core: {len(sc_mask)}-{sc_mask} Core {core_mask} Peripheral {perip_mask}")
-        self.core_mask = np.where(sc_mask == core_mask)
-        self.core_semantics = l2norm(torch.stack([text_probs.squeeze(0)[idx] * self.prototypes[idx] for idx in sc_mask]))
+
+        self.core_mask = [idx for idx, ch in enumerate(sc_mask) if ch in core_mask]
+        self.core_mask = torch.LongTensor([self.core_mask]).to(self.args.device)
+        self.core_semantics = l2norm(torch.stack([text_probs.squeeze(0)[idx] * self.prototypes[idx] for idx in core_mask]))
+
         # Source Image Dissection
         image_probs = (self.image_feature @ self.prototypes.T)
-        ip_mask, _ = self.outlier_sigma(image_probs.squeeze(0),cnt=0.1)
+        ip_mask, _ = self.outlier_sigma(image_probs.squeeze(0), cnt=0.1)
 
         #* Image positive filtering process
         only_img_mask = [i for i in ip_mask if i not in sc_mask]
@@ -67,8 +69,10 @@ class CrossModalAlign(CLIPLoss):
         random_edges = D.bernoulli.Bernoulli(probs = torch.abs(cos_sim))
         sampled_edges = random_edges.sample()
         print(f"sampled :{torch.count_nonzero(sampled_edges)}")
-        sampled_edges[self.core_mask] = 1
-        weights = (cos_sim * sampled_edges) * torch.sign(cos_sim)
+        for idx in self.core_mask[0]:
+            sampled_edges[0][idx] = 1
+        # sampled_edges[self.core_mask] = 1
+        weights = (cos_sim * sampled_edges)
         diverse_core_manifold = l2norm(torch.matmul(weights, cores)) # inner product
         return diverse_core_manifold
         
@@ -82,7 +86,7 @@ class CrossModalAlign(CLIPLoss):
         mask = torch.bitwise_or(m1, m2)
         candidate_indices = [i for i, b in enumerate(mask) if b]
         candidate_probs = probs[mask].detach().cpu().numpy().reshape(-1, 1) # (N, 1)
-        
+
         clf = LocalOutlierFactor(n_neighbors=5, contamination=cnt)
         y_pred = clf.fit_predict(candidate_probs)
         outlier_mask = (y_pred==-1)

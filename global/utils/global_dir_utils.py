@@ -108,6 +108,7 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
 
     num_c = args.topk
     _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
+    print("manipulated channels", idxs)
     ds_imp = np.zeros_like(tmp)
     for idx in idxs:
         idx = idx.detach().cpu()
@@ -139,8 +140,6 @@ def SplitS(ds_p, style_names, style_space, dataset, nsml=False):
             tmp = ds_p[start:end]
             all_ds.append(tmp)
             start = end
-    print(len(all_ds))
-    print(len(style_names))
 
     all_ds2 = []
     t_index = 0

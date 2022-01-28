@@ -44,7 +44,7 @@ def prepare(args):
 def run_global(generator, align_model, args, target, neutral):
     mean_latent = generator.mean_latent(4096)
 
-    if args.path:
+    if args.random_latent:
         latent_code_init_not_trunc = torch.randn(1, 1).cuda()
         latent_code_init_not_trunc = torch.cat([torch.zeros(1, 511).cuda(),latent_code_init_not_trunc], dim=-1)
         with torch.no_grad():
@@ -125,7 +125,7 @@ def run_global(generator, align_model, args, target, neutral):
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
     parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
-    parser.add_argument('--num_attempts', type=int, default=1, help="Number of iterations for diversity measurement")
+    parser.add_argument('--num_attempts', type=int, default=3, help="Number of iterations for diversity measurement")
     parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify", choices=[25, 50, 100])
     parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
@@ -135,7 +135,7 @@ if __name__=="__main__":
     parser.add_argument("--excludeRandom", action='store_true', help="do not use randomness of core semantics")
     parser.add_argument("--nsml", action='store_true')
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--path", action='store_true', help='activate if you want to use previous latent')
+    parser.add_argument("--random_latent", action='store_true', help='activate if you want to use random latent')
     
     parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "afhqdog", "afhqcat", "afhqwild"])
     args = parser.parse_args()
@@ -147,7 +147,7 @@ if __name__=="__main__":
     
     generator, align_model, s_dict, args = prepare(args)
 
-    args.targets = ["Happy"]
+    args.targets = ["cute"]
     neutral = [""]
 
     ###########################################################
