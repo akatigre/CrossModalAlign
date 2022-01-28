@@ -118,7 +118,7 @@ def run_global(generator, align_model, args, target, neutral):
             _, _cs, _us, _ip, _ = align_model.evaluation(img_orig, img_gen, target)
             cs.update(_cs); us.update(_us); ip.update(_ip)
 
-    img_name = 1
+    img_name = f"{args.dataset}/{target}"
     generated_images = torch.cat(generated_images) # [1+num_attempts, 3, 1024, 1024]
     os.makedirs(group_name, exist_ok=True)
     save_image(generated_images, f"{group_name}/{img_name}.png", normalize=True, range=(-1, 1))
