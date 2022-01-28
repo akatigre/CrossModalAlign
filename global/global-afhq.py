@@ -44,8 +44,7 @@ def prepare(args):
 def run_global(generator, align_model, args, target, neutral):
     mean_latent = generator.mean_latent(4096)
 
-    path = False # if False, always use mean_latent
-    if path:
+    if args.path:
         latent_code_init_not_trunc = torch.randn(1, 1).cuda()
         latent_code_init_not_trunc = torch.cat([torch.zeros(1, 511).cuda(),latent_code_init_not_trunc], dim=-1)
         with torch.no_grad():
@@ -54,7 +53,8 @@ def run_global(generator, align_model, args, target, neutral):
                                         # truncation=args.truncation, truncation_latent=latent_code_init_not_trunc)
         torch.save(latent, f'latent-{args.dataset}.pt')
     else:
-        latent = mean_latent.detach().clone().repeat(1, 18, 1)
+        # latent = mean_latent.detach().clone().repeat(1, 18, 1)
+        latent = torch.load(f"latent-{args.dataset}.pt")
     latent.to(args.device)
     
     target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
@@ -81,7 +81,6 @@ def run_global(generator, align_model, args, target, neutral):
     if args.excludeRandom:
         group_name += "-Diverse"
     
-
     manip_channels = set()
     # latent = latent.unsqueeze(0).to(args.device)
     generated_images = []
@@ -118,15 +117,15 @@ def run_global(generator, align_model, args, target, neutral):
             _, _cs, _us, _ip, _ = align_model.evaluation(img_orig, img_gen, target)
             cs.update(_cs); us.update(_us); ip.update(_ip)
 
-    img_name = f"{args.dataset}/{target}"
+    img_name = f"{target}"
     generated_images = torch.cat(generated_images) # [1+num_attempts, 3, 1024, 1024]
     os.makedirs(group_name, exist_ok=True)
-    save_image(generated_images, f"{group_name}/{img_name}.png", normalize=True, range=(-1, 1))
+    save_image(generated_images, f"{group_name}/{args.dataset}-{img_name}.png", normalize=True, range=(-1, 1))
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
     parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
-    parser.add_argument('--num_attempts', type=int, default=3, help="Number of iterations for diversity measurement")
+    parser.add_argument('--num_attempts', type=int, default=1, help="Number of iterations for diversity measurement")
     parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify", choices=[25, 50, 100])
     parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
@@ -136,6 +135,7 @@ if __name__=="__main__":
     parser.add_argument("--excludeRandom", action='store_true', help="do not use randomness of core semantics")
     parser.add_argument("--nsml", action='store_true')
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--path", action='store_true', help='activate if you want to use previous latent')
     
     parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "afhqdog", "afhqcat", "afhqwild"])
     args = parser.parse_args()
@@ -147,7 +147,7 @@ if __name__=="__main__":
     
     generator, align_model, s_dict, args = prepare(args)
 
-    args.targets = ["cute"]
+    args.targets = ["Happy"]
     neutral = [""]
 
     ###########################################################
