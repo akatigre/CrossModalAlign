@@ -70,7 +70,7 @@ class CrossModalAlign(CLIPLoss):
         sampled_edges = random_edges.sample()
         print(f"sampled :{torch.count_nonzero(sampled_edges)}")
         for idx in self.core_mask[0]:
-            sampled_edges[0][idx] = 1
+            sampled_edges[0][idx] = 1.0* np.random.uniform(8, 10) / 10
         # sampled_edges[self.core_mask] = 1
         weights = (cos_sim * sampled_edges)
         diverse_core_manifold = l2norm(torch.matmul(weights, cores)) # inner product
