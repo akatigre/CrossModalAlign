@@ -33,12 +33,11 @@ def prepare(args):
     elif args.method=="Baseline":
         args.s_dict = s_dict
 
-    align_model = CrossModalAlign(512, args)
-    align_model.prototypes = torch.Tensor(s_dict).to(args.device)
-    align_model.istr_prototypes = torch.Tensor(args.s_dict).to(args.device) # Isotropic version of s_dict
+    align_model = CrossModalAlign(args)
+    align_model.prototypes = torch.Tensor(args.s_dict).to(args.device)
     align_model.to(args.device)
 
-    return generator, align_model, s_dict, args
+    return generator, align_model, args
 
 
 def run_global(generator, align_model, args, target, neutral):
@@ -59,40 +58,15 @@ def run_global(generator, align_model, args, target, neutral):
     
     target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
     align_model.text_feature = target_embedding
-    
-    if args.method == "Baseline":
-        exp_name = f"{target}-chtopk{args.topk}"
-    elif args.method == "Random":
-        exp_name = f'{target}-chNum{args.topk}-Weight{args.trg_lambda}-Temp{args.temperature}'
-    else:
-        exp_name = None
-        exit(-1)
 
-    config = {
-        "target": target,
-        "method": args.method,
-        "num channels": args.topk,
-        "target weights": args.trg_lambda,
-        "temperature": args.temperature,
-    }
-    group_name = args.method+"+LOF"
-    if args.excludeImage:
-        group_name += "-Image"
-    if args.excludeRandom:
-        group_name += "-Diverse"
+    img_dir = f"{args.method}-{args.dataset}"
+    os.makedirs(img_dir, exist_ok=True)
     
-    manip_channels = set()
-    # latent = latent.unsqueeze(0).to(args.device)
     generated_images = []
     # original Image from latent code (W+)
     img_orig, style_space, style_names, noise_constants = create_image_S(generator, latent)
     align_model.image_feature = align_model.encode_image(img_orig)
     generated_images.append(img_orig)
-
-    cs, ip, us, img_prop = [AverageMeter() for _ in range(4)]
-    with torch.no_grad():
-        # Prepare model for evaluation
-        cores = align_model.cross_modal_surgery()
 
     for _ in range(args.num_attempts):
         # StyleCLIP GlobalDirection 
@@ -100,27 +74,14 @@ def run_global(generator, align_model, args, target, neutral):
             t = target_embedding.detach().cpu().numpy()
             t = t/np.linalg.norm(t)
         else:
-        # Random Interpolation
-            if not args.excludeRandom:
-                random_cores = align_model.diverse_text(cores)
-            else:
-                random_cores = l2norm(align_model.core_semantics.sum(dim=0, keepdim=True))
-            t, p = align_model.postprocess(random_cores)
-            img_prop.update(p)
-            
+            # Random Interpolation
+            t = align_model.cross_modal_surgery()
         img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
-        
         generated_images.append(img_gen)
-        
-        # Evaluation
-        with torch.no_grad():
-            _, _cs, _us, _ip, _ = align_model.evaluation(img_orig, img_gen, target)
-            cs.update(_cs); us.update(_us); ip.update(_ip)
 
-    img_name = f"{target}"
+    img_name =  f"img-{args.method}-{target}"
     generated_images = torch.cat(generated_images) # [1+num_attempts, 3, 1024, 1024]
-    os.makedirs(group_name, exist_ok=True)
-    save_image(generated_images, f"{group_name}/{args.dataset}-{img_name}.png", normalize=True, range=(-1, 1))
+    save_image(generated_images, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
@@ -131,21 +92,18 @@ if __name__=="__main__":
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
     parser.add_argument("--truncation", type=float, default=0.7, help="used only for the initial latent vector, and only when a latent code path is"                                                                "not provided")
     parser.add_argument("--stylegan_size", type=int, default=512, help="StyleGAN resolution for AFHQ")
-    parser.add_argument("--excludeImage", action='store_true', help="do not use image manifold information")
-    parser.add_argument("--excludeRandom", action='store_true', help="do not use randomness of core semantics")
     parser.add_argument("--nsml", action='store_true')
     parser.add_argument("--gpu", type=int, default=0)
+
     parser.add_argument("--random_latent", action='store_true', help='activate if you want to use random latent')
-    
-    parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "afhqdog", "afhqcat", "afhqwild"])
+    parser.add_argument("--dataset", type=str, default="afhqdog", choices=["afhqdog", "afhqcat", "afhqwild"])
+
     args = parser.parse_args()
     args.device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else 'cpu')
-
-    if args.dataset != "FFHQ":
-        args.s_dict_path = f"./npy/{args.dataset}/fs3.npy"
-        args.stylegan_weights = f"../pretrained_models/{args.dataset}.pt"
+    args.stylegan_weights = f"../pretrained_models/{args.dataset}.pt"
+    args.s_dict_path = f"./npy/{args.dataset}/fs3.npy"
     
-    generator, align_model, s_dict, args = prepare(args)
+    generator, align_model, args = prepare(args)
 
     args.targets = ["cute"]
     neutral = [""]

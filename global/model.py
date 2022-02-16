@@ -8,27 +8,21 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
 )
-from itertools import compress
+
 import torch
 from torch import nn
 import torch.distributions as D
-import scipy.stats as stats
+from numpy import linspace
 from criteria.clip_loss import CLIPLoss
 from criteria.id_loss import IDLoss
 from utils.utils import l2norm
-from utils.eval_utils import Text2Prototype
 from sklearn.neighbors import LocalOutlierFactor
-import ckwrap
+from sklearn.neighbors.kde import KernelDensity
 
 
 class CrossModalAlign(CLIPLoss):
-    def __init__(
-        self,
-        latent_size,
-        args
-    ):
+    def __init__(self, args):
         super().__init__(opts=args)
-        self.edge_scaling = nn.Parameter(torch.tensor(1.0 * latent_size).sqrt().log())
         self.args = args
         if args.dataset == "FFHQ":
             self.idloss = IDLoss(args).to(args.device)
@@ -36,74 +30,75 @@ class CrossModalAlign(CLIPLoss):
             self.idloss = None
         
     def cross_modal_surgery(self):
+        """
+            self.text_feature and self.image_feature (in case of manipulation) should be assigned before call
+        """
         # Target Text Dissection
         text_probs = (self.text_feature @ self.prototypes.T)
-        sc_mask, (core_mask, perip_mask) = self.outlier_sigma(text_probs.squeeze(0), cnt=0.5)
-        print(f"Target core: {len(sc_mask)}-{sc_mask} Core {core_mask} Peripheral {perip_mask}")
+        core_mask, peri_mask = self.break_down(text_probs)
 
-        self.core_mask = [idx for idx, ch in enumerate(sc_mask) if ch in core_mask]
-        self.core_mask = torch.LongTensor([self.core_mask]).to(self.args.device)
-        self.core_semantics = l2norm(torch.stack([text_probs.squeeze(0)[idx] * self.prototypes[idx] for idx in core_mask]))
+        # CORE
+        core_semantics = self.prototypes[core_mask]
+        weights =  self.text_feature @ core_semantics.T
+        random_edges = D.relaxed_bernoulli.RelaxedBernoulli(probs=torch.abs(weights), temperature=torch.ones_like(weights))
+        sampled_edges = random_edges.sample()
+        weights = sampled_edges * torch.sign(weights)
+        core_semantics = torch.matmul(weights, core_semantics)
+
+        # PERIPHERAL
+        peri_semantics = self.prototypes[peri_mask]
+        weights = self.text_feature @ peri_semantics.T
+        random_edges = D.bernoulli.Bernoulli(probs=torch.abs(weights))
+        mask = random_edges.sample()
+        peri_semantics = torch.matmul(weights*mask, peri_semantics)
+
+        # Concatenate core + peripheral
+        bases = l2norm(core_semantics+peri_semantics)
 
         # Source Image Dissection
         image_probs = (self.image_feature @ self.prototypes.T)
-        ip_mask, _ = self.outlier_sigma(image_probs.squeeze(0), cnt=0.1)
+        c, p = self.break_down(image_probs)
 
-        #* Image positive filtering process
-        only_img_mask = [i for i in ip_mask if i not in sc_mask]
-        overlap_mask = [i for i in ip_mask if i in sc_mask] # 겹치는 것 중에서 방향이 일치하는 경우만 포함  
-        ip_mask =[idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0] + only_img_mask
+        img_mask = np.union1d(c, p)
+        txt_mask = np.union1d(core_mask, peri_mask)
+
+        # Image positive filtering process
+        only_img_mask = [i for i in img_mask if i not in txt_mask]
+        overlap_mask = [i for i in img_mask if i in txt_mask]
+        filtered_mask =[idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0] + only_img_mask
+        
         img_proto = image_probs.T * self.prototypes
-        self.image_semantics = l2norm(img_proto[ip_mask])
-        print(f"Source Positive {self.image_semantics.shape[0]}")
+        image_manifold = l2norm(img_proto[filtered_mask].sum(dim=0, keepdim=True))
 
-        # Unwanted semantics from text should exclude core semantics and image positives
-        unwanted_mask = [i for i in range(image_probs.shape[0]) if i not in ip_mask+sc_mask]
-        txt_proto = text_probs.T * self.prototypes
-        self.unwanted_semantics = l2norm(txt_proto[unwanted_mask])
-        return l2norm(torch.stack([self.prototypes[idx] for idx in sc_mask])) 
+        gamma = torch.abs(1/(self.image_feature @ self.text_feature.T))
+        return l2norm(gamma * bases + image_manifold)
+    
+    def projection(self, basis, target):
+        B = basis.detach().cpu()
+        X = target.detach().cpu()
+        B = B.squeeze(0)
+        X = X.squeeze(0)
+        return l2norm((X.dot(B.T)/B.dot(B) * B).unsqueeze(0)).cuda()
 
-    def diverse_text(self, cores):
-        N = cores.shape[0]
-        cos_sim = self.text_feature @ cores.T
-        random_edges = D.bernoulli.Bernoulli(probs = torch.abs(cos_sim))
-        sampled_edges = random_edges.sample()
-        print(f"sampled :{torch.count_nonzero(sampled_edges)}")
-        for idx in self.core_mask[0]:
-            sampled_edges[0][idx] = 1.0* np.random.uniform(8, 10) / 10
-        # sampled_edges[self.core_mask] = 1
-        weights = (cos_sim * sampled_edges)
-        diverse_core_manifold = l2norm(torch.matmul(weights, cores)) # inner product
-        return diverse_core_manifold
-        
+    def break_down(self, probs):
+        clf = LocalOutlierFactor(algorithm='auto', metric='cityblock')
+        probs = probs.T.cpu().detach().numpy()
+        _ = clf.fit_predict(probs)
+        lof_score = clf.negative_outlier_factor_
+        #! Kernel Density Estimation
+        kde = KernelDensity(kernel='exponential', bandwidth=0.05).fit(lof_score.reshape(-1, 1))
+        s = linspace(np.min(lof_score), np.max(lof_score))
+        e = kde.score_samples(s.reshape(-1, 1)) # reshape a single feature
+        from scipy.signal import find_peaks, peak_prominences
+        mi = find_peaks(-e)[0]
+        a, b = mi[0], mi[-1]
+        core_mask, peri_mask = np.array([lof_score < s[a]]).squeeze(0), np.array([(lof_score>=s[a])*(lof_score<s[b])]).squeeze(0)
+        return core_mask, peri_mask    
 
-    def outlier_sigma(self, probs, alpha=1.96, cnt=0.1):
-        mu, sigma = probs.mean(), probs.std()
-        threshold_over = mu + alpha*sigma
-        threshold_down = mu - alpha*sigma
-        m1 = torch.ge(probs, threshold_over)
-        m2 = torch.le(probs, threshold_down)
-        mask = torch.bitwise_or(m1, m2)
-        candidate_indices = [i for i, b in enumerate(mask) if b]
-        candidate_probs = probs[mask].detach().cpu().numpy().reshape(-1, 1) # (N, 1)
 
-        clf = LocalOutlierFactor(n_neighbors=5, contamination=cnt)
-        y_pred = clf.fit_predict(candidate_probs)
-        outlier_mask = (y_pred==-1)
-        indices = list(compress(candidate_indices, outlier_mask.tolist()))
-        lof_score = clf.negative_outlier_factor_[outlier_mask]
-        km = ckwrap.ckmeans(lof_score, 2)
-        buckets = [[],[]]
-        for i in range(len(lof_score)):
-            buckets[km.labels[i]].append(indices[i])
-        return indices, buckets
-
-        
     def evaluation(self, img_orig, img_gen, target):
-        """Evaluates manipulative quality & disentanglement in the generated image
-        1. Core semantic: Increased (self.core_semantics)
-        2. Unwanted semantic: Do not increase (self.text_cond)
-        3. Image positive: Do not decrease (self.image_semantics)
+        """
+        Evaluates manipulative quality in the generated image
         """
         # Identity Loss(ArcFace)
         if self.args.dataset == "FFHQ":
@@ -111,33 +106,7 @@ class CrossModalAlign(CLIPLoss):
         else:
             identity = 0
             
-        new_image_feature = self.encode_image(img_gen)
-
-        # Core semantic
-        bf = self.image_feature @ self.core_semantics.T
-        af = new_image_feature @ self.core_semantics.T
-        cs = (af - bf).mean(dim=1)
-        cs = cs.detach().cpu().numpy()
-
-        # Unwanted semantic (exclude anchors from image positive)
-        
-        bf = self.image_feature @ self.unwanted_semantics.T
-        af = new_image_feature @ self.unwanted_semantics.T
-        us = (af - bf).mean(dim=1)
-        us = us.detach().cpu().numpy()
-    
-        if self.image_semantics.shape[0] == 0: 
-            ip = 0.0
-        else: 
-            # Image Positive
-            bf = self.image_feature @ self.image_semantics.T
-            af = new_image_feature @ self.image_semantics.T
-            ip = (af - bf).mean(dim=1)
-            ip = ip.detach().cpu().numpy()
-
-        attr = 0.0
-
-        return identity, cs, abs(us), abs(ip), attr
+        return identity
 
     def postprocess(self, random_text_feature):
         image_manifold = l2norm(self.image_semantics.sum(dim=0, keepdim=True))
@@ -145,18 +114,3 @@ class CrossModalAlign(CLIPLoss):
         text_star = gamma * random_text_feature + image_manifold
         img_prop = image_manifold.norm()/text_star.norm()
         return l2norm(text_star).detach().cpu().numpy(), img_prop
-
-    def check_normal(self, x, title: str):
-        from matplotlib import pyplot as plt
-        plt.hist(x, bins=100, density=True, stacked=True, alpha=0.2)
-        mu, sigma = x.mean(), x.std()
-        plt.axvline(x.mean(), label='mean')
-        x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-        plt.text(-0.2, 5, f"mean: {mu} std: {sigma}")
-        plt.plot(x, stats.norm.pdf(x, mu, sigma))
-        plt.grid(True)
-        plt.title(f"{title}")
-        if not os.path.exists('results/'):
-            os.mkdir('results/')
-        plt.savefig(f"results/{title}.png")
-        plt.clf()
