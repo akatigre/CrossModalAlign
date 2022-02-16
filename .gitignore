@@ -17,7 +17,7 @@ mapper/*
 global/*.sh
 
 # pretrained model 
-global/npy/*
+npy/*
 pretrained_models/*
 global/*/*.pt
 *.pth 

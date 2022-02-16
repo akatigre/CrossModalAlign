@@ -1,1 +1,0 @@
-sudo docker run --shm-size=2g --gpus all -it -v $PWD:/workspace --workdir=/workspace -e HOME=/workspace yjk:v1 bash
