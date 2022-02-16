@@ -1,18 +1,10 @@
 # Generated Image
 results/*
-global/Baseline+LOF/*
-global/Random+LOF/*
-global/Random+LOF-Diverse/*
-global/Random+LOF-Image/*
-global/Random+LOF-Image-Diverse/*
 
+# Latents
+latents/*
 
-# pycache file
-global/__pycache__/*
-global/stylegan2/__pycache__/*
-global/criteria/__pycache__/*
-global/facial_recognition/__pycache__/*
-global/dnnlib/__pycache__/*
+__pycache__/
 *.pyc
 
 # Log & Results
@@ -35,4 +27,9 @@ ckpts/*
 # not important files
 *.csv
 *.png
+/env
 
+/stylegan2/weights
+/gpt2/weights/gpt2-pytorch_model.bin
+
+/.vscode
