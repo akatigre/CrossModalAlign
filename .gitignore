@@ -32,4 +32,8 @@ ckpts/*
 /stylegan2/weights
 /gpt2/weights/gpt2-pytorch_model.bin
 
+/env
+
+/stylegan2/weights
+/gpt2/weights/gpt2-pytorch_model.bin
 /.vscode
