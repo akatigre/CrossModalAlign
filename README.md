@@ -1,4 +1,18 @@
-### Global Direction
+### Setup
+
+   
+    cd src
+    python setup.py install 
+
+    >> Enable importing our model from any directory
+
+### Image Generation
+
+- CLIP Glass: Refer to README file for setup and configuration
+
+### Image editing
+
+- StyleCLIP
 
 - Prepare
 
