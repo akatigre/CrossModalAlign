@@ -97,7 +97,7 @@ class CrossModalAlign(object):
         mi = find_peaks(-e)[0]
         a, b = mi[0], mi[-1]
         plt.plot(s[:a+1], e[:a+1], 'r',
-            s[a:b+1], e[b:b+1], 'b',
+            s[a:b+1], e[a:b+1], 'b',
             s[b:], e[b:], 'm',
             s[[a,b]], e[[a,b]], 'y*')
         plt.scatter(lof_score, np.zeros_like(lof_score), c='c', alpha=0.8, marker='^')
