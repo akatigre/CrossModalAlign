@@ -12,7 +12,7 @@ import torch.distributions as D
 from sklearn.neighbors import LocalOutlierFactor
 import matplotlib.pyplot as plt
 from numpy import linspace
-from sklearn.neighbors.kde import KernelDensity
+from sklearn.neighbors._kde import KernelDensity
 
 from functools import partial
 l2norm = partial(F.normalize, p=2, dim=-1)
