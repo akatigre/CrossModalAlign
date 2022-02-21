@@ -53,7 +53,8 @@ def prepare(args):
 def run_global(generator, align_model, args, target, neutral):
 
     test_latents = torch.load(args.latents_path, map_location='cpu')
-    subset_latents = torch.Tensor(test_latents[:args.num_test]).cpu()
+    start_idx = 50
+    subset_latents = torch.Tensor(test_latents[start_idx:start_idx+args.num_test]).cpu()
     target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
     align_model.text_feature = target_embedding
 
@@ -80,7 +81,7 @@ def run_global(generator, align_model, args, target, neutral):
                 t = t/np.linalg.norm(t)
             else:
                 # Random Interpolation
-                t = align_model.cross_modal_surgery()
+                t = align_model.cross_modal_surgery().detach().cpu().numpy()
             img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
             generated_images.append(img_gen)
             
@@ -144,7 +145,7 @@ if __name__=="__main__":
     
     generator, align_model, args = prepare(args)
 
-    targets = ["Blonde Hair"]
+    targets = ["Curly Hair "]
     neutral = [""] * len(targets)
 
     for idx, target in enumerate(targets):
