@@ -19,6 +19,10 @@ from utils.utils import l2norm
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.neighbors.kde import KernelDensity
 
+def bool2idx(b_list):
+    tmp = [idx for idx, state in enumerate(b_list) if state]
+    return tmp
+
 
 class CrossModalAlign(CLIPLoss):
     def __init__(self, args):
@@ -54,18 +58,21 @@ class CrossModalAlign(CLIPLoss):
 
         # Source Image Dissection
         image_probs = (self.image_feature @ self.prototypes.T)
-        c, p = self.break_down(image_probs)
+        c, p = self.break_down(image_probs) 
 
+        c, p = bool2idx(c), bool2idx(p)
         img_mask = np.union1d(c, p)
+
+        core_mask, peri_mask = bool2idx(core_mask), bool2idx(peri_mask)
         txt_mask = np.union1d(core_mask, peri_mask)
 
         # Image positive filtering process
-        only_img_mask = [i for i in img_mask if i not in txt_mask]
-        overlap_mask = [i for i in img_mask if i in txt_mask]
-        filtered_mask =[idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0] + only_img_mask
-        
-        img_proto = image_probs.T * self.prototypes
-        image_manifold = l2norm(img_proto[filtered_mask].sum(dim=0, keepdim=True))
+        overlap_mask = np.intersect1d(img_mask, txt_mask)
+        only_img_mask = np.setdiff1d(img_mask, overlap_mask)
+        filtered_mask = np.union1d(np.asarray([idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0]), only_img_mask)
+
+        img_proto = image_probs[:, filtered_mask] @ self.prototypes[filtered_mask]
+        image_manifold = l2norm(img_proto.sum(dim=0, keepdim=True))
 
         gamma = torch.abs(1/(self.image_feature @ self.text_feature.T))
         return l2norm(gamma * bases + image_manifold)
