@@ -44,8 +44,8 @@ def run_global(generator, align_model, args, target, neutral):
     mean_latent = generator.mean_latent(4096)
 
     if args.random_latent:
-        latent_code_init_not_trunc = torch.randn(1, 1).cuda()
-        latent_code_init_not_trunc = torch.cat([torch.zeros(1, 511).cuda(),latent_code_init_not_trunc], dim=-1)
+        latent_code_init_not_trunc = torch.randn(1, 512).cuda()
+        # latent_code_init_not_trunc = torch.cat([torch.zeros(1, 511).cuda(),latent_code_init_not_trunc], dim=-1)
         with torch.no_grad():
             _, latent, _ = generator.forward([latent_code_init_not_trunc], return_latents=True,
                                         truncation=args.truncation, truncation_latent=mean_latent)
@@ -105,8 +105,8 @@ if __name__=="__main__":
     
     generator, align_model, args = prepare(args)
 
-    args.targets = ["cute"]
-    neutral = [""]
+    args.targets = ["kitten"]
+    neutral = ["cat"]
 
     ###########################################################
 
