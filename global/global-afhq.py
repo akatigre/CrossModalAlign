@@ -75,7 +75,7 @@ def run_global(generator, align_model, args, target, neutral):
             t = t/np.linalg.norm(t)
         else:
             # Random Interpolation
-            t = align_model.cross_modal_surgery()
+            t = align_model.cross_modal_surgery().detach().cpu().numpy()
         img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
         generated_images.append(img_gen)
 
@@ -105,8 +105,8 @@ if __name__=="__main__":
     
     generator, align_model, args = prepare(args)
 
-    args.targets = ["kitten"]
-    neutral = ["cat"]
+    args.targets = ['baby cat']
+    neutral = [""]* len(args.targets)
 
     ###########################################################
 
