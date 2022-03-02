@@ -28,7 +28,7 @@ def prepare(args):
 
     # Load styleGAN generator
     generator = Generator(
-        size = 1024, # size of generated image
+        size = args.stylegan_size, # size of generated image
         style_dim = 512,
         n_mlp = 8,
         channel_multiplier = 2,
@@ -53,8 +53,8 @@ def prepare(args):
 def run_global(generator, align_model, args, target, neutral):
 
     test_latents = torch.load(args.latents_path, map_location='cpu')
-    start_idx = 50
-    subset_latents = torch.Tensor(test_latents[start_idx:start_idx+args.num_test]).cpu()
+    # start_idx = 0
+    # subset_latents = torch.Tensor(test_latents[start_idx:start_idx+args.num_test]).cpu()
     target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
     align_model.text_feature = target_embedding
 
@@ -65,7 +65,7 @@ def run_global(generator, align_model, args, target, neutral):
     # lpips_alex = lpips.LPIPS(net='alex')
     # lpips_alex = lpips_alex.to(args.device)
 
-    for i, latent in enumerate(list(subset_latents)):
+    for i, latent in enumerate(list(test_latents)):
         latent = latent.unsqueeze(0).to(args.device)
         generated_images = []
         # original Image from latent code (W+)
@@ -115,15 +115,16 @@ def run_global(generator, align_model, args, target, neutral):
         #         lpips_value = sum(values) / (1.0* len(values))
         #         lpips_value = lpips_value[0][0][0][0].cpu().item()
         
-        img_name =  f"img-{args.method}-{target}"
+        img_name =  f"img-{args.method}-140-{target}"
         generated_images = torch.cat(generated_images) # [1+num_attempts, 3, 1024, 1024]
         save_image(generated_images, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
+        # start_idx += 1
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
     parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
     parser.add_argument('--num_attempts', type=int, default=3, help="Number of iterations for diversity measurement")
-    parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify", choices=[25, 50, 100])
+    parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify")
     parser.add_argument('--num_test', type=int, default=1, help="Number of latents to test for debugging, if -1 then use all 100 images")
     parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
@@ -133,19 +134,24 @@ if __name__=="__main__":
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
     parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
     parser.add_argument("--segment_weights", type=str, default="../pretrained_models/79999_iter.pth")
-    parser.add_argument("--latents_path", type=str, default="../pretrained_models/test_faces.pt")
+    parser.add_argument("--latents_path", type=str, default="../pretrained_models/train_faces.pt")
     parser.add_argument("--s_dict_path", type=str, default="./npy/ffhq/fs3.npy")
     
     parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
-    parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "AFHQ"])
+    parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "AFHQ", "church", 'car'])
     parser.add_argument("--gpu", type=int, default=0)
 
     args = parser.parse_args()
     args.device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else 'cpu')
-    
+
+    if args.dataset == 'car' or args.dataset == 'church':
+        args.stylegan_weights = f'../pretrained_models/stylegan2-{args.dataset}-config-f.pt'
+        args.latents_paath = f'./{args.dataset}.pt'
+        args.stylegan_size = 512 if args.dataset=='car' else 256
+
     generator, align_model, args = prepare(args)
 
-    targets = ["Curly Hair "]
+    targets = ["Big eyes"]
     neutral = [""] * len(targets)
 
     for idx, target in enumerate(targets):

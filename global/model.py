@@ -76,6 +76,7 @@ class CrossModalAlign(CLIPLoss):
 
         gamma = torch.abs(1/(self.image_feature @ self.text_feature.T))
         return l2norm(gamma * bases + image_manifold)
+        # return gamma*bases
     
     def projection(self, basis, target):
         B = basis.detach().cpu()
