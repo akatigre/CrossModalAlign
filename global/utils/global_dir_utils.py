@@ -107,8 +107,10 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     num_c = args.topk
     _, idxs = torch.topk(torch.Tensor(np.abs(tmp)), num_c)
     ds_imp = np.zeros_like(tmp)
+    # eps = 1.0
     for idx in idxs:
         idx = idx.detach().cpu()
+        # ds_imp[idx] = tmp[idx] + np.random.normal(0.0, eps, (1))
         ds_imp[idx] = tmp[idx]
     tmp = np.abs(ds_imp).max()
     ds_imp/=tmp
@@ -116,7 +118,7 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     print('num of channels being manipulated:',num_c)
     return boundary_tmp2, num_c, dlatents, idxs[:5]
         
-def SplitS(ds_p, style_names, style_space, nsml=False):
+def SplitS(ds_p, style_names, style_space, nsml=False): 
     """
     Split array of 6048(toRGB ignored) channels into corresponding channel size (into 9088)
     """
@@ -168,6 +170,35 @@ def MSCode(dlatent_tmp, boundary_tmp, alpha, device):
         codes.append(code.cuda())
     return codes
 
+def MSCode2(dlatent_tmp, boundary_tmp, boundary_tmp2, alpha, beta, device):
+    """
+    dlatent_tmp: W mapped into style space S
+    boundary_tmp: Manipulation vector
+    Returns:
+        manipulated Style Space
+    """
+    step=len(alpha)
+    dlatent_tmp1=[tmp.reshape((1,-1)) for tmp in dlatent_tmp]
+    dlatent_tmp2=[np.tile(tmp[:,None],(1,step,1)) for tmp in dlatent_tmp1]
+
+    l=np.array(alpha)
+    l=l.reshape([step if axis == 1 else 1 for axis in range(dlatent_tmp2[0].ndim)])
+    
+    l2=np.array(beta)
+    l2=l2.reshape([step if axis == 1 else 1 for axis in range(dlatent_tmp2[0].ndim)])
+    
+    tmp=np.arange(len(boundary_tmp))
+    for i in tmp:
+        dlatent_tmp2[i]+=l*boundary_tmp[i] + l2*boundary_tmp2[i]
+    
+    codes=[]
+    for i in range(len(dlatent_tmp2)):
+        tmp=list(dlatent_tmp[i].shape)
+        tmp.insert(1,step)
+        code = torch.Tensor(dlatent_tmp2[i].reshape(tmp))
+        codes.append(code.cuda())
+    return codes
+
 def zeroshot_classifier(classnames, model):
     """
     model: CLIP 
@@ -201,5 +232,13 @@ def manipulate_image(style_space, style_names, noise_constants, generator, laten
     boundary_tmp2, _, _, _ = GetBoundary(s_dict, t.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
     dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
     manip_codes= MSCode(dlatents_loaded, boundary_tmp2, [alpha], device)
+    img_gen = decoder(generator, manip_codes, latent, noise_constants)
+    return img_gen, manip_codes, style_space
+
+def manipulate_image2(style_space, style_names, noise_constants, generator, latent, args, alpha=5, beta=5, t=None, t2= None, s_dict=None, device="cuda:0"):
+    boundary_tmp2, _, _, _ = GetBoundary(s_dict, t.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
+    boundary_tmp22, _, _, _ = GetBoundary(s_dict, t2.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
+    dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
+    manip_codes= MSCode2(dlatents_loaded, boundary_tmp2, boundary_tmp22, [alpha], [beta], device)
     img_gen = decoder(generator, manip_codes, latent, noise_constants)
     return img_gen, manip_codes, style_space

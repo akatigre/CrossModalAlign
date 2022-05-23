@@ -5,7 +5,7 @@ global/Random+LOF/*
 global/Random+LOF-Diverse/*
 global/Random+LOF-Image/*
 global/Random+LOF-Image-Diverse/*
-
+global/*.jpg
 
 # pycache file
 global/__pycache__/*
@@ -23,6 +23,9 @@ mapper/*
 
 # scripts
 global/*.sh
+
+# data
+global/CelebA-HQ-img/*
 
 # pretrained model 
 global/npy/*

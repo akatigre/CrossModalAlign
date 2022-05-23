@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__)))
 )
 
 import torch
-from torch import nn
+from torch import arccos, nn
 import torch.distributions as D
 from numpy import linspace
 from criteria.clip_loss import CLIPLoss
@@ -23,6 +23,14 @@ def bool2idx(b_list):
     tmp = [idx for idx, state in enumerate(b_list) if state]
     return tmp
 
+def slerp(p0, p1, t):
+    """
+    p0, p1 : vector
+    t : portion of the interpolation
+    """
+    omega = arccos(torch.dot((p0/torch.norm(p0)).squeeze(0), (p1/torch.norm(p1)).squeeze(0)))
+    so = torch.sin(omega)
+    return torch.sin((1.0-t)*omega)/so * p0 + torch.sin(t*omega)/so*p1
 
 class CrossModalAlign(CLIPLoss):
     def __init__(self, args):
@@ -30,31 +38,37 @@ class CrossModalAlign(CLIPLoss):
         self.args = args
         self.idloss = IDLoss(args).to(args.device)
         
-    def cross_modal_surgery(self):
+    def cross_modal_surgery(self, fixed_weight=False):
         """
             self.text_feature and self.image_feature (in case of manipulation) should be assigned before call
         """
         # Target Text Dissection
         text_probs = (self.text_feature @ self.prototypes.T)
         core_mask, peri_mask = self.break_down(text_probs)
-
+     
         # CORE
         core_semantics = self.prototypes[core_mask]
         weights =  self.text_feature @ core_semantics.T
-        random_edges = D.relaxed_bernoulli.RelaxedBernoulli(probs=torch.abs(weights), temperature=torch.ones_like(weights))
-        sampled_edges = random_edges.sample()
-        weights = sampled_edges * torch.sign(weights)
+        if not fixed_weight:
+            random_edges = D.relaxed_bernoulli.RelaxedBernoulli(probs=torch.abs(weights), temperature=torch.ones_like(weights))
+            sampled_edges = random_edges.sample()
+            weights = sampled_edges * torch.sign(weights)
         core_semantics = torch.matmul(weights, core_semantics)
 
         # PERIPHERAL
         peri_semantics = self.prototypes[peri_mask]
         weights = self.text_feature @ peri_semantics.T
-        random_edges = D.bernoulli.Bernoulli(probs=torch.abs(weights))
-        mask = random_edges.sample()
-        peri_semantics = torch.matmul(weights*mask, peri_semantics)
+        if not fixed_weight: 
+            random_edges = D.bernoulli.Bernoulli(logits=torch.abs(weights))
+            mask = random_edges.sample()
+            weights = weights * mask
+        peri_semantics = torch.matmul(weights, peri_semantics)
 
         # Concatenate core + peripheral
         bases = l2norm(core_semantics+peri_semantics)
+        
+        if fixed_weight:
+            return bases
 
         # Source Image Dissection
         image_probs = (self.image_feature @ self.prototypes.T)
@@ -74,9 +88,10 @@ class CrossModalAlign(CLIPLoss):
         img_proto = image_probs[:, filtered_mask] @ self.prototypes[filtered_mask]
         image_manifold = l2norm(img_proto.sum(dim=0, keepdim=True))
 
-        gamma = torch.abs(1/(self.image_feature @ self.text_feature.T))
-        return l2norm(gamma * bases + image_manifold)
-        # return gamma*bases
+        # gamma = torch.abs(1/(self.image_feature @ self.text_feature.T))
+        return slerp(bases, image_manifold, 0.3)
+        # return l2norm(gamma*bases+image_manifold)
+        # return bases
     
     def projection(self, basis, target):
         B = basis.detach().cpu()

@@ -39,10 +39,7 @@ def prepare(args):
 
     # Load anchors
     s_dict = np.load(args.s_dict_path)
-    if args.method=="Random":
-        args.s_dict = project_away_pc(s_dict, k=5)
-    elif args.method=="Baseline":
-        args.s_dict = s_dict
+    args.s_dict = s_dict
 
     align_model = CrossModalAlign(args)
     align_model.prototypes = torch.Tensor(args.s_dict).to(args.device)
@@ -53,8 +50,8 @@ def prepare(args):
 def run_global(generator, align_model, args, target, neutral):
 
     test_latents = torch.load(args.latents_path, map_location='cpu')
-    # start_idx = 0
-    # subset_latents = torch.Tensor(test_latents[start_idx:start_idx+args.num_test]).cpu()
+    start_idx = 12
+    test_latents = torch.Tensor(test_latents[start_idx:start_idx+args.num_test]).cpu()
     target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
     align_model.text_feature = target_embedding
 
@@ -81,7 +78,7 @@ def run_global(generator, align_model, args, target, neutral):
                 t = t/np.linalg.norm(t)
             else:
                 # Random Interpolation
-                t = align_model.cross_modal_surgery().detach().cpu().numpy()
+                t = align_model.cross_modal_surgery(fixed_weight=False).detach().cpu().numpy()
             img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
             generated_images.append(img_gen)
             
@@ -115,7 +112,7 @@ def run_global(generator, align_model, args, target, neutral):
         #         lpips_value = sum(values) / (1.0* len(values))
         #         lpips_value = lpips_value[0][0][0][0].cpu().item()
         
-        img_name =  f"img-{args.method}-140-{target}"
+        img_name =  f"img-{args.method}-{start_idx}-{target}"
         generated_images = torch.cat(generated_images) # [1+num_attempts, 3, 1024, 1024]
         save_image(generated_images, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
         # start_idx += 1
@@ -129,6 +126,7 @@ if __name__=="__main__":
     parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
+    parser.add_argument('--beta', type=float, default=0.15, help="Number of channels to modify")
 
     ### MODEL WEIGHT
     parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
@@ -146,7 +144,7 @@ if __name__=="__main__":
 
     if args.dataset == 'car' or args.dataset == 'church':
         args.stylegan_weights = f'../pretrained_models/stylegan2-{args.dataset}-config-f.pt'
-        args.latents_paath = f'./{args.dataset}.pt'
+        args.latents_path = f'./{args.dataset}.pt'
         args.stylegan_size = 512 if args.dataset=='car' else 256
 
     generator, align_model, args = prepare(args)
