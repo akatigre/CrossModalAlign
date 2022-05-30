@@ -44,54 +44,53 @@ class CrossModalAlign(CLIPLoss):
         """
         # Target Text Dissection
         text_probs = (self.text_feature @ self.prototypes.T)
-        core_mask, peri_mask = self.break_down(text_probs)
-     
-        # CORE
+        core_mask, peri_mask = self.break_down(text_probs) # return in numpy arrays (6048, )
+
+        # VERSION 1 : DIRECTLY MANIPULATE THE CHANNELS
+        # Initialize the result array 
+        m_idxs, m_weights = [], []
+
+        # boolean array to index (which is True)
+        core_mask, peri_mask = bool2idx(core_mask), bool2idx(peri_mask)
+
         core_semantics = self.prototypes[core_mask]
         weights =  self.text_feature @ core_semantics.T
+        m_idxs.append(core_mask)
         if not fixed_weight:
             random_edges = D.relaxed_bernoulli.RelaxedBernoulli(probs=torch.abs(weights), temperature=torch.ones_like(weights))
             sampled_edges = random_edges.sample()
             weights = sampled_edges * torch.sign(weights)
-        core_semantics = torch.matmul(weights, core_semantics)
+        m_weights.extend(weights.detach().cpu().numpy())
 
         # PERIPHERAL
         peri_semantics = self.prototypes[peri_mask]
         weights = self.text_feature @ peri_semantics.T
+        m_idxs.append(peri_mask)
         if not fixed_weight: 
             random_edges = D.bernoulli.Bernoulli(logits=torch.abs(weights))
             mask = random_edges.sample()
             weights = weights * mask
-        peri_semantics = torch.matmul(weights, peri_semantics)
-
-        # Concatenate core + peripheral
-        bases = l2norm(core_semantics+peri_semantics)
+        m_weights.extend(weights.detach().cpu().numpy())
         
-        if fixed_weight:
-            return bases
+        # Image-related Units
+        
+        # image_probs = (self.image_feature @ self.prototypes.T)
+        # c, p = self.break_down(image_probs) 
+        # c, p = bool2idx(c), bool2idx(p)
 
-        # Source Image Dissection
-        image_probs = (self.image_feature @ self.prototypes.T)
-        c, p = self.break_down(image_probs) 
+        # img_mask = np.union1d(c, p)
+        # txt_mask = np.union1d(core_mask, peri_mask)
 
-        c, p = bool2idx(c), bool2idx(p)
-        img_mask = np.union1d(c, p)
+        # overlap_mask = np.intersect1d(img_mask, txt_mask)
+        # only_img_mask = np.setdiff1d(img_mask, overlap_mask)
+        # filtered_mask = np.union1d(np.asarray([idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0]), only_img_mask)
 
-        core_mask, peri_mask = bool2idx(core_mask), bool2idx(peri_mask)
-        txt_mask = np.union1d(core_mask, peri_mask)
+        # img_weights = image_probs[:, filtered_mask]
+        # m_idxs.append(filtered_mask)
+        # m_weights.extend(img_weights.detach().cpu().numpy())
 
-        # Image positive filtering process
-        overlap_mask = np.intersect1d(img_mask, txt_mask)
-        only_img_mask = np.setdiff1d(img_mask, overlap_mask)
-        filtered_mask = np.union1d(np.asarray([idx for idx in overlap_mask if image_probs.squeeze(0)[idx] * text_probs.squeeze(0)[idx]>=0]), only_img_mask)
-
-        img_proto = image_probs[:, filtered_mask] @ self.prototypes[filtered_mask]
-        image_manifold = l2norm(img_proto.sum(dim=0, keepdim=True))
-
-        # gamma = torch.abs(1/(self.image_feature @ self.text_feature.T))
-        return slerp(bases, image_manifold, 0.3)
-        # return l2norm(gamma*bases+image_manifold)
-        # return bases
+        return m_idxs, m_weights
+     
     
     def projection(self, basis, target):
         B = basis.detach().cpu()

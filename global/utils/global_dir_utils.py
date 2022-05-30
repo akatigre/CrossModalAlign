@@ -116,7 +116,31 @@ def GetBoundary(fs3, dt, args, style_space, style_names):
     ds_imp/=tmp
     boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.nsml)
     print('num of channels being manipulated:',num_c)
-    return boundary_tmp2, num_c, dlatents, idxs[:5]
+    return boundary_tmp2, num_c, dlatents, idxs
+
+def GetBoundary_dir(fs3, m_idxs, m_weights, args, style_space, style_names):
+    """
+    fs3: collection of predefined style directions for each channel (6048, 512)
+    m_idxs : channels to manipulate
+    m_weights : directly pairs to m_idxs
+    """
+    assert len(m_idxs) == len(m_weights)
+
+    print("Directly Manipulate the style Space")
+
+    ds_imp = np.zeros_like(fs3)[:, 0]
+    num_c = 0
+    for i in range(len(m_idxs)):
+        idxs = m_idxs[i]
+        for j in range(len(idxs)):
+            idx = int(idxs[j])
+            ds_imp[idx] = m_weights[i][j]
+            num_c += 1
+    tmp = np.abs(ds_imp).max()
+    ds_imp/=tmp
+    boundary_tmp2, dlatents=SplitS(ds_imp, style_names, style_space, args.nsml)
+    print('num of channels being manipulated:',num_c)
+    return boundary_tmp2, num_c, dlatents, idxs
         
 def SplitS(ds_p, style_names, style_space, nsml=False): 
     """
@@ -235,6 +259,15 @@ def manipulate_image(style_space, style_names, noise_constants, generator, laten
     img_gen = decoder(generator, manip_codes, latent, noise_constants)
     return img_gen, manip_codes, style_space
 
+# Directly manipulate without dot product
+def manipulate_image_dir(style_space, style_names, noise_constants, generator, latent, args, alpha=5, m_idxs=None, m_weights=None, s_dict=None, device="cuda:0"):
+    boundary_tmp2, _, _, _ = GetBoundary_dir(s_dict, m_idxs, m_weights, args, style_space, style_names) # Move each channel by dStyle
+    dlatents_loaded = [s.cpu().detach().numpy() for s in style_space]
+    manip_codes= MSCode(dlatents_loaded, boundary_tmp2, [alpha], device)
+    img_gen = decoder(generator, manip_codes, latent, noise_constants)
+    return img_gen, manip_codes, style_space
+
+# Interpolate between two text embeddings
 def manipulate_image2(style_space, style_names, noise_constants, generator, latent, args, alpha=5, beta=5, t=None, t2= None, s_dict=None, device="cuda:0"):
     boundary_tmp2, _, _, _ = GetBoundary(s_dict, t.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle
     boundary_tmp22, _, _, _ = GetBoundary(s_dict, t2.squeeze(axis=0), args, style_space, style_names) # Move each channel by dStyle

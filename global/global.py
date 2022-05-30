@@ -8,7 +8,7 @@ import numpy as np
 np.set_printoptions(suppress=True)
 
 from utils.utils import *
-from utils.global_dir_utils import create_dt, manipulate_image, create_image_S
+from utils.global_dir_utils import create_dt, manipulate_image, manipulate_image_dir, create_image_S
 # from utils.eval_utils import Text2Segment, maskImage
 from model import CrossModalAlign
 from models.stylegan2.models import Generator
@@ -76,10 +76,11 @@ def run_global(generator, align_model, args, target, neutral):
             if args.method=="Baseline":
                 t = target_embedding.detach().cpu().numpy()
                 t = t/np.linalg.norm(t)
+                img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
             else:
                 # Random Interpolation
-                t = align_model.cross_modal_surgery(fixed_weight=False).detach().cpu().numpy()
-            img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
+                m_idxs, m_weights = align_model.cross_modal_surgery(fixed_weight=False)
+                img_gen, _, _ = manipulate_image_dir(style_space, style_names, noise_constants, generator, latent, args, alpha=5, m_idxs=m_idxs, m_weights=m_weights, s_dict=args.s_dict, device=args.device)
             generated_images.append(img_gen)
             
             # Evaluation
