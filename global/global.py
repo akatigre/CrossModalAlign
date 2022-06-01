@@ -12,7 +12,25 @@ from utils.global_dir_utils import create_dt, manipulate_image, manipulate_image
 # from utils.eval_utils import Text2Segment, maskImage
 from model import CrossModalAlign
 from models.stylegan2.models import Generator
-from torchvision.utils import save_image
+from torchvision.utils import make_grid
+import torchvision.transforms.functional as F
+import matplotlib.pyplot as plt
+
+def show(imgs, column_names, save_name, dpi=1800, suptitle=None):
+    
+    fig, axs = plt.subplots(nrows=len(imgs), squeeze=False)
+    for i, img in enumerate(imgs):
+        img = img.detach()
+        img = F.to_pil_image(img)
+        axs[i,0].imshow(np.asarray(img))
+        axs[i,0].set_xlabel(column_names[i], fontsize=6)
+        axs[i,0].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+    if suptitle is not None:
+        fig.suptitle(suptitle, fontsize=8)
+    fig.subplots_adjust(bottom=0.1, hspace=0.35)
+    plt.savefig(save_name, dpi=dpi)
+    plt.cla() 
+
 
 def prepare(args):
     if args.nsml: 
@@ -47,46 +65,43 @@ def prepare(args):
 
     return generator, align_model, args
 
-def run_global(generator, align_model, args, target, neutral):
+def run_global(generator, align_model, args):
 
     test_latents = torch.load(args.latents_path, map_location='cpu')
-    start_idx = 12
-    test_latents = torch.Tensor(test_latents[start_idx:start_idx+args.num_test]).cpu()
-    target_embedding = create_dt(target, model=align_model.model, neutral=neutral)
-    align_model.text_feature = target_embedding
-
-    img_dir = f"{args.method}-{args.dataset}"
-    os.makedirs(img_dir, exist_ok=True)
+    start_idx = 1
+    latent = torch.Tensor(test_latents[start_idx][None]).to(args.device)
     
     # import lpips
     # lpips_alex = lpips.LPIPS(net='alex')
     # lpips_alex = lpips_alex.to(args.device)
-
-    for i, latent in enumerate(list(test_latents)):
-        latent = latent.unsqueeze(0).to(args.device)
+    grids = []
+    for target in args.targets:
         generated_images = []
+        target_embedding = create_dt(target, model=align_model.model)
+        align_model.text_feature = target_embedding
+        
         # original Image from latent code (W+)
         img_orig, style_space, style_names, noise_constants = create_image_S(generator, latent)
         align_model.image_feature = align_model.encode_image(img_orig)
-        generated_images.append(img_orig)
+        generated_images.append(img_orig.detach().cpu().squeeze(0))
         
-        id_loss = AverageMeter()
+        # id_loss = AverageMeter()
         for _ in range(args.num_attempts):
             # StyleCLIP GlobalDirection 
             if args.method=="Baseline":
                 t = target_embedding.detach().cpu().numpy()
                 t = t/np.linalg.norm(t)
-                img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=5, t=t, s_dict=args.s_dict, device=args.device)
+                img_gen, _, _ = manipulate_image(style_space, style_names, noise_constants, generator, latent, args, alpha=args.alpha, t=t, s_dict=args.s_dict, device=args.device)
             else:
                 # Random Interpolation
                 m_idxs, m_weights = align_model.cross_modal_surgery(fixed_weight=False)
-                img_gen, _, _ = manipulate_image_dir(style_space, style_names, noise_constants, generator, latent, args, alpha=5, m_idxs=m_idxs, m_weights=m_weights, s_dict=args.s_dict, device=args.device)
-            generated_images.append(img_gen)
+                img_gen, _, _ = manipulate_image_dir(style_space, style_names, noise_constants, generator, latent, args, alpha=args.alpha, m_idxs=m_idxs, m_weights=m_weights, s_dict=args.s_dict, device=args.device)
+            generated_images.append(img_gen.detach().cpu().squeeze(0))
             
             # Evaluation
-            with torch.no_grad():
-                _id = align_model.evaluation(img_orig, img_gen, target)
-                id_loss.update(_id)
+            # with torch.no_grad():
+            #     _id = align_model.evaluation(img_orig, img_gen, target)
+            #     id_loss.update(_id)
 
         # with torch.no_grad(): 
         # # First image at generated image is original 
@@ -112,47 +127,44 @@ def run_global(generator, align_model, args, target, neutral):
         #             values.append(tmp)
         #         lpips_value = sum(values) / (1.0* len(values))
         #         lpips_value = lpips_value[0][0][0][0].cpu().item()
-        
-        img_name =  f"img-{args.method}-{start_idx}-{target}"
-        generated_images = torch.cat(generated_images) # [1+num_attempts, 3, 1024, 1024]
-        save_image(generated_images, f"{img_dir}/{img_name}.png", normalize=True, range=(-1, 1))
-        # start_idx += 1
+
+        grid = make_grid(generated_images, nrow=args.num_attempts+1, normalize=True, value_range=(-1, 1))
+        grids.append(grid)
+    show(grids, column_names=args.targets, save_name=f'{args.dataset}.png', dpi=1800, suptitle=f"{args.method} latent: {start_idx} top: {args.topk} alpha: {args.alpha}")
+
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Configuration for styleCLIP Global Direction with our method')
     parser.add_argument('--method', type=str, default="Baseline", choices=["Baseline", "Random"], help='Use original styleCLIP global direction if Baseline')
     parser.add_argument('--num_attempts', type=int, default=3, help="Number of iterations for diversity measurement")
     parser.add_argument('--topk', type=int, default=50, help="Number of channels to modify")
+    parser.add_argument('--alpha', type=int, default=5, help="Manpulation strength")
     parser.add_argument('--num_test', type=int, default=1, help="Number of latents to test for debugging, if -1 then use all 100 images")
     parser.add_argument('--trg_lambda', type=float, default=0.5, help="weight for preserving the information of target")
     parser.add_argument('--temperature', type=float, default=1.0, help="Used for bernoulli")
     parser.add_argument("--stylegan_size", type=int, default=1024, help="StyleGAN resolution")
     parser.add_argument('--beta', type=float, default=0.15, help="Number of channels to modify")
 
-    ### MODEL WEIGHT
-    parser.add_argument("--ir_se50_weights", type=str, default="../pretrained_models/model_ir_se50.pth")
-    parser.add_argument("--stylegan_weights", type=str, default="../pretrained_models/stylegan2-ffhq-config-f.pt")
-    parser.add_argument("--segment_weights", type=str, default="../pretrained_models/79999_iter.pth")
-    parser.add_argument("--latents_path", type=str, default="../pretrained_models/train_faces.pt")
-    parser.add_argument("--s_dict_path", type=str, default="./npy/ffhq/fs3.npy")
     
     parser.add_argument("--nsml", action="store_true", help="run on the nsml server")
-    parser.add_argument("--dataset", type=str, default="FFHQ", choices=["FFHQ", "AFHQ", "church", 'car'])
+    parser.add_argument("--dataset", type=str, default="ffhq", choices=["ffhq", "afhqcat", "afhqdog", "church", 'car'])
     parser.add_argument("--gpu", type=int, default=0)
 
     args = parser.parse_args()
     args.device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else 'cpu')
-
-    if args.dataset == 'car' or args.dataset == 'church':
-        args.stylegan_weights = f'../pretrained_models/stylegan2-{args.dataset}-config-f.pt'
-        args.latents_path = f'./{args.dataset}.pt'
-        args.stylegan_size = 512 if args.dataset=='car' else 256
+    args.stylegan_weights = f'../Pretrained/stylegan2/{args.dataset}.pt'
+    args.s_dict_path = f'./dictionary/{args.dataset}/fs3.npy'
+    args.latents_path = f'./latents/{args.dataset}/test_faces.pt'
+    if args.dataset=='ffhq':
+        args.stylegan_size = 1024
+    elif args.dataset=='car':
+        args.stylegan_size = 512
+    elif args.dataset=='car':
+        args.stylegan_size = 256
 
     generator, align_model, args = prepare(args)
 
-    targets = ["Big eyes"]
-    neutral = [""] * len(targets)
-
-    for idx, target in enumerate(targets):
-        args.neutral = neutral[idx]
-        run_global(generator, align_model, args, target, args.neutral)
+    args.targets = ["man", 'man with long hair', 'Young', 'Old', 'Glasses', 'Smiling']
+    
+    args.neutral = ""
+    run_global(generator, align_model, args)
